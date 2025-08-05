@@ -1,0 +1,222 @@
+#! /bin/env python
+
+import plotly.graph_objects as go
+import plotly.express as px
+import pandas as pd
+import numpy as np
+from PIL import Image
+from utils import load_json
+import matplotlib.pyplot as plt
+
+from langchain_core.tools import StructuredTool
+from pydantic import BaseModel, Field
+from langchain_core.tools import tool
+
+from typing import Tuple, List, Literal
+
+INDEX_PATH = "datasets/COCO_search18/task_image_index.json"
+FIXATIONS_PATH = "datasets/COCO_search18/fixations_val_subset.json"
+IMAGES_PATH = "datasets/COCO_search18/coco_search18_images_TA"
+
+valid_image_names = list(load_json(INDEX_PATH)[0].keys())
+
+@tool("fixation_heat_map", response_format="content_and_artifact", parse_docstring=True)
+def tool_fixation_heat_map(subject_ids: list[int|str], image_name: str) ->  Tuple[str, go.Figure]:
+    """Generate a heat map of fixation times for a list of one or more subject ids.
+
+    Args:
+        subject_ids: list of ids of subject from which eye-tracking data was collected
+        image_name: file name of the viewed image
+    """
+    # Get fixation data and image_path
+    fixations = get_fixations_by_subject(subject_ids, image_name)
+    x, y, t = aggregate_fixations(fixations)
+    image_path = get_image_path(image_name)
+
+    fig = get_layout_image_fig(image_path, 1680, 1050)
+    max_time = max(t)
+
+    fig.add_trace(
+        go.Histogram2d(x=x, y=y, z=t, zsmooth="best", histfunc="avg", zmin=max_time*0.05, zmax=max_time*0.55,
+            hovertemplate="%{z}ms (avg)<extra></extra>",
+            xbins={
+                "start": 0, 
+                "end": 1680, 
+                "size": 105
+            }, 
+            ybins={
+                "start": 0,
+                "end": 1050,
+                "size": 105
+            }, 
+            # based on preset 'thermal' with added alpha
+            colorscale=[
+                'rgba(0, 0, 0, 0)',
+                'rgba(60, 0, 210, 0.6)',
+                'rgba(80, 20, 195, 0.8)',
+                'rgba(126, 40, 160, 1)',
+                'rgba(158, 60, 145, 1)',
+                'rgba(193, 100, 125, 1)',
+                'rgba(225, 113, 100, 1)',
+                'rgba(255, 139, 75, 1)',
+                'rgba(255, 173, 60, 1)',
+                'rgba(255, 211, 30, 1)',
+                'rgba(255, 255, 0, 1)'
+            ],
+            opacity=0.8
+        )
+    )
+
+    content = f"Generated heat map plot for subjects with ids {subject_ids} and image {image_name}."
+    return content, fig
+
+@tool("scan_path_plot", response_format="content_and_artifact", parse_docstring=True)
+def tool_scan_path_plot(subject_id: int|int, image_name: str) ->  Tuple[str, go.Figure]:
+    """Generate a plot of the scan path of eye-tracking data with fixation times.
+
+    Args:
+        subject_id: id of a subject from which eye-tracking data was collected
+        image_name: file name of the viewed image
+    """
+    # Get fixation data and image_path
+    fixations_dict = get_fixations_by_subject([subject_id], image_name)
+    fixations_for_subject = fixations_dict[str(subject_id)]
+    x, y, t = fixations_for_subject["X"], fixations_for_subject["Y"], fixations_for_subject["T"]
+
+    image_path = get_image_path(image_name)
+
+    fig = get_layout_image_fig(image_path, 1680, 1050)
+
+    fig.add_scatter(x=x, y=y, mode="lines+markers", text=t,
+                    hovertemplate="%{text}ms<extra></extra>",
+                    marker={
+                        "size": 12,
+                        "symbol": "arrow",
+                        "angleref": "previous"
+                    },
+                    name="Fixation",
+                    line={
+                        "color": "red",
+                        "width": 2,
+                    }
+                )
+    # # Add circle marker at start:
+    # fig.add_scatter(x=x[:1], y=y[:1], mode="markers",
+    #                 hovertemplate="Start<extra></extra>",
+    #                 marker={
+    #                     "size": 12,
+    #                     "symbol": "circle",
+    #                     "color": "red"
+    #                 },
+    #             )
+    content = f"Generated scan path plot for subject with id {subject_id} and image {image_name}."
+    return content, fig
+
+def get_fixations_by_subject(subject_id_list: list[int], image_name: str) -> dict[dict[int]]:
+    data = load_json(FIXATIONS_PATH)
+    index = load_json(INDEX_PATH)
+    
+    # Adding file extension if it is missing
+    if not image_name.endswith(".jpg"):
+        image_name = image_name+".jpg"
+    if image_name not in valid_image_names:
+        raise ValueError(f"Image '{image_name}' does not exist. Has to be one of {valid_image_names}")
+
+    selected_trials = {}
+    for trial in data:
+        if trial["name"] == image_name:
+            for subject_id in subject_id_list:
+                if str(trial["subject"]) == str(subject_id):
+                    fixations = {
+                        "X": trial["X"],
+                        "Y": trial["Y"],
+                        "T": trial["T"]
+                        }
+                    selected_trials[str(subject_id)] = fixations
+
+    # This creates a structure like:
+    # {
+    #     "5": {
+    #         "X": [333, 444, 555],
+    #         "Y": [555, 444, 333],
+    #         "T": [111, 222, 333]
+    #     },
+    #     ...
+    # }
+    
+    if len(selected_trials) == 0:
+        raise ValueError(f"No available data for image '{image_name}' and subject ids: {subject_id_list}")
+    return selected_trials
+    
+def get_image_path(image_name: str) -> str:
+    index = load_json(INDEX_PATH)
+    # Adding file extension if it is missing
+    if not image_name.endswith(".jpg"):
+        image_name = image_name+".jpg"
+    if image_name not in valid_image_names:
+        raise ValueError(f"Image '{image_name}' does not exist. Has to be one of {valid_image_names}")
+    task_name = index[0][image_name]
+    return IMAGES_PATH + "/" + task_name + "/" + image_name
+
+def aggregate_fixations(fixations_by_subject_id: dict[dict[int]]) -> Tuple[list]:
+    x, y, t = [], [], []
+    for fixations in list(fixations_by_subject_id.values()):
+        x.extend(fixations["X"])
+        y.extend(fixations["Y"])
+        t.extend(fixations["T"])
+    return x, y, t
+
+@tool("get_images_for_subject", response_format="content", parse_docstring=True)
+def tool_get_images_for_subject(subject_id: int) -> list[str]:
+    """Get a list of image names, for which the given subject has fixation data.
+
+    Args:
+        subject_id: id of a subject
+    """
+    data = load_json(FIXATIONS_PATH)
+    image_names = []
+    for trial in data:
+        if str(trial["subject"]) == str(subject_id):
+            image_names.append(trial["name"])
+    image_names_str = ", ".join(image_names)
+    content = f"The subject with id {subject_id}, has fixation data for these image_names: {image_names_str}."
+    return content
+
+@tool("get_subjects_for_image", response_format="content", parse_docstring=True)
+def tool_get_subjects_for_image(image_name: str) -> list[int]:
+    """Get a list of subject ids, which have fixation data for the given image.
+
+    Args:
+        image_name: filename of an image
+    """
+    data = load_json(FIXATIONS_PATH)
+    subject_ids = []
+    for trial in data:
+        if str(trial["name"]) == image_name:
+            subject_ids.append(str(trial["subject"]))
+    subject_ids_str = ", ".join(subject_ids)
+    content = f"For the image {image_name}, there is fixation data for these subjects: {subject_ids_str}."
+    return content
+
+def get_layout_image_fig(image_path: str, width: int, height: int) -> go.Figure:
+    fig = go.Figure()
+    image = Image.open(image_path)
+    fig.add_layout_image(
+            x=0,
+            sizex=width,
+            y=0,
+            sizey=height,
+            xref="x",
+            yref="y",
+            opacity=1.0,
+            layer="below",
+            source=image
+    )
+    fig.update_xaxes(showgrid=False, visible=False, range=(0, width))
+    fig.update_yaxes(showgrid=False, visible=False, scaleanchor='x', range=(height, 0))
+    return fig
+
+tools = {
+    name[5:]: func for (name, func) in globals().items() if name.startswith("tool_")
+}
+
