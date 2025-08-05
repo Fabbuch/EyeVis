@@ -1,18 +1,12 @@
 #! /bin/env python
 
 import plotly.graph_objects as go
-import plotly.express as px
-import pandas as pd
-import numpy as np
 from PIL import Image
 from utils import load_json
-import matplotlib.pyplot as plt
 
-from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 
-from typing import Tuple, List, Literal
+from typing import Tuple
 
 INDEX_PATH = "datasets/COCO_search18/task_image_index.json"
 FIXATIONS_PATH = "datasets/COCO_search18/fixations_val_subset.json"
@@ -114,7 +108,6 @@ def tool_scan_path_plot(subject_id: int|int, image_name: str) ->  Tuple[str, go.
 
 def get_fixations_by_subject(subject_id_list: list[int], image_name: str) -> dict[dict[int]]:
     data = load_json(FIXATIONS_PATH)
-    index = load_json(INDEX_PATH)
     
     # Adding file extension if it is missing
     if not image_name.endswith(".jpg"):
@@ -167,7 +160,7 @@ def aggregate_fixations(fixations_by_subject_id: dict[dict[int]]) -> Tuple[list]
     return x, y, t
 
 @tool("get_images_for_subject", response_format="content", parse_docstring=True)
-def tool_get_images_for_subject(subject_id: int) -> list[str]:
+def tool_get_images_for_subject(subject_id: int) -> str:
     """Get a list of image names, for which the given subject has fixation data.
 
     Args:
@@ -178,12 +171,14 @@ def tool_get_images_for_subject(subject_id: int) -> list[str]:
     for trial in data:
         if str(trial["subject"]) == str(subject_id):
             image_names.append(trial["name"])
+    if len(image_names) == 0:
+        return f"The subject with id {subject_id} has no fixation data or the subject doesn't exist."
     image_names_str = ", ".join(image_names)
     content = f"The subject with id {subject_id}, has fixation data for these image_names: {image_names_str}."
     return content
 
 @tool("get_subjects_for_image", response_format="content", parse_docstring=True)
-def tool_get_subjects_for_image(image_name: str) -> list[int]:
+def tool_get_subjects_for_image(image_name: str) -> int:
     """Get a list of subject ids, which have fixation data for the given image.
 
     Args:
@@ -191,9 +186,13 @@ def tool_get_subjects_for_image(image_name: str) -> list[int]:
     """
     data = load_json(FIXATIONS_PATH)
     subject_ids = []
+    if image_name not in valid_image_names:
+        raise ValueError(f"Image '{image_name}' does not exist. Has to be one of {valid_image_names}")
     for trial in data:
         if str(trial["name"]) == image_name:
             subject_ids.append(str(trial["subject"]))
+    if len(subject_ids) == 0:
+        return f"For the image {image_name}, there is no fixation data or the image doesn't exist."
     subject_ids_str = ", ".join(subject_ids)
     content = f"For the image {image_name}, there is fixation data for these subjects: {subject_ids_str}."
     return content

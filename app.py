@@ -3,19 +3,11 @@
 
 import plotting_tools as ptools
 from dash import Dash, html, dcc, Input, Output, State, callback
-import plotly.express as px
-import pandas as pd
 import dash_bootstrap_components as dbc
 import os
-from utils import load_json
-import plotly
-
-from typing import List
 
 from langchain_core.messages import AIMessage
 from langchain_ollama import ChatOllama
-from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
 
 from langchain_core.messages import (
     AIMessage,
@@ -107,7 +99,10 @@ def update_output(n_clicks, value, initial_figure):
         if ai_message.tool_calls:
             tool_call = ai_message.tool_calls[0]
             fct_name = tool_call["name"]
-            tool_message = ptools.tools[fct_name].invoke(tool_call)
+            try:
+                tool_message = ptools.tools[fct_name].invoke(tool_call)
+            except ValueError as exc:
+                tool_message = ToolMessage(f"ValueError: {str(exc)}", tool_call_id=n_clicks)
             messages.append(ToolMessage(tool_message.content, tool_call_id=n_clicks))
 
             message_str = get_message_string()
