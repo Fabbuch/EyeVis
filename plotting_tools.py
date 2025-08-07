@@ -3,6 +3,7 @@
 import plotly.graph_objects as go
 from PIL import Image
 from utils import load_json
+import plotly.express as px
 
 from langchain_core.tools import tool
 
@@ -16,10 +17,10 @@ valid_image_names = list(load_json(INDEX_PATH)[0].keys())
 
 @tool("fixation_heat_map", response_format="content_and_artifact", parse_docstring=True)
 def tool_fixation_heat_map(subject_ids: list[int|str], image_name: str) ->  Tuple[str, go.Figure]:
-    """Generate a heat map of fixation times for a list of one or more subject ids.
+    """Generate a heat map of fixation times for one or more subjects.
 
     Args:
-        subject_ids: list of ids of subject from which eye-tracking data was collected
+        subject_ids: list of ids of subjects from which eye-tracking data was collected
         image_name: file name of the viewed image
     """
     # Get fixation data and image_path
@@ -64,36 +65,43 @@ def tool_fixation_heat_map(subject_ids: list[int|str], image_name: str) ->  Tupl
     content = f"Generated heat map plot for subjects with ids {subject_ids} and image {image_name}."
     return content, fig
 
-@tool("scan_path_plot", response_format="content_and_artifact", parse_docstring=True)
-def tool_scan_path_plot(subject_id: int|int, image_name: str) ->  Tuple[str, go.Figure]:
-    """Generate a plot of the scan path of eye-tracking data with fixation times.
+# @tool("scan_path_plot", response_format="content_and_artifact", parse_docstring=True)
+def tool_scan_path_plot(subject_ids: list[int|str], image_name: str) ->  Tuple[str, go.Figure]:
+    """Generate a plot showing the scan path of the fixations of one or more subjects.
 
     Args:
-        subject_id: id of a subject from which eye-tracking data was collected
+        subject_ids: list of ids of subjects from which eye-tracking data was collected
         image_name: file name of the viewed image
     """
     # Get fixation data and image_path
-    fixations_dict = get_fixations_by_subject([subject_id], image_name)
-    fixations_for_subject = fixations_dict[str(subject_id)]
-    x, y, t = fixations_for_subject["X"], fixations_for_subject["Y"], fixations_for_subject["T"]
+    fixations_dict = get_fixations_by_subject(subject_ids, image_name)
 
     image_path = get_image_path(image_name)
 
     fig = get_layout_image_fig(image_path, 1680, 1050)
 
-    fig.add_scatter(x=x, y=y, mode="lines+markers", text=t,
-                    hovertemplate="%{text}ms<extra></extra>",
-                    marker={
-                        "size": 12,
-                        "symbol": "arrow",
-                        "angleref": "previous"
-                    },
-                    name="Fixation",
-                    line={
-                        "color": "red",
-                        "width": 2,
-                    }
-                )
+    # Since there are 10 subjects in the default dataset, a discrete color scale with 10 different colors
+    # is enough to generate 10 different colors. For custom datasets, a larger number of different colors
+    # might need to be generated.
+    colors = px.colors.qualitative.G10
+
+    for i, subject_id in enumerate(fixations_dict.keys()):
+        color = colors[i]
+        fixations_for_subject = fixations_dict[subject_id]
+        x, y, t = fixations_for_subject["X"], fixations_for_subject["Y"], fixations_for_subject["T"]
+        fig.add_scatter(x=x, y=y, mode="lines+markers", text=t,
+                        hovertemplate="%{text}ms<extra></extra>",
+                        marker={
+                            "size": 12,
+                            "symbol": "arrow",
+                            "angleref": "previous"
+                        },
+                        name=f"ID {subject_id}",
+                        line={
+                            "color": color,
+                            "width": 2,
+                        }
+                    )
     # # Add circle marker at start:
     # fig.add_scatter(x=x[:1], y=y[:1], mode="markers",
     #                 hovertemplate="Start<extra></extra>",
@@ -103,10 +111,22 @@ def tool_scan_path_plot(subject_id: int|int, image_name: str) ->  Tuple[str, go.
     #                     "color": "red"
     #                 },
     #             )
-    content = f"Generated scan path plot for subject with id {subject_id} and image {image_name}."
+    content = f"Generated scan path plot for subjects with ids {subject_ids} and image {image_name}."
     return content, fig
 
 def get_fixations_by_subject(subject_id_list: list[int], image_name: str) -> dict[dict[int]]:
+    """Select fixation data for the given subjects and the given image.
+
+    Returns: dictionary with a structure like this:
+    {
+        "5": {
+            "X": [333, 444, 555],
+            "Y": [555, 444, 333],
+            "T": [111, 222, 333]
+        },
+        ...
+    }
+    """
     data = load_json(FIXATIONS_PATH)
     
     # Adding file extension if it is missing
@@ -126,16 +146,6 @@ def get_fixations_by_subject(subject_id_list: list[int], image_name: str) -> dic
                         "T": trial["T"]
                         }
                     selected_trials[str(subject_id)] = fixations
-
-    # This creates a structure like:
-    # {
-    #     "5": {
-    #         "X": [333, 444, 555],
-    #         "Y": [555, 444, 333],
-    #         "T": [111, 222, 333]
-    #     },
-    #     ...
-    # }
     
     if len(selected_trials) == 0:
         raise ValueError(f"No available data for image '{image_name}' and subject ids: {subject_id_list}")

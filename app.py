@@ -40,6 +40,7 @@ messages = [
 
 # make a scan path plot for subject with id 2 and image 000000005600.jpg
 # content, fig = ptools.tool_scan_path_plot(2, "000000275791.jpg")
+# content, fig = ptools.tool_scan_path_plot([1,2], "000000275791.jpg")
 # content, fig = ptools.tool_fixation_heat_map([9,2,10], "000000252771.jpg)
 # content, fig = ptools.tool_fixation_heat_map([9], "000000252771.jpg")
 fig = None
