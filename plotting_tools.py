@@ -4,18 +4,27 @@ import plotly.graph_objects as go
 from PIL import Image
 from utils import load_json
 import plotly.express as px
+import os
+import pandas as pd
 
 from langchain_core.tools import tool
 
 from typing import Tuple
 
-INDEX_PATH = "datasets/COCO_search18/task_image_index.json"
-FIXATIONS_PATH = "datasets/COCO_search18/fixations_val_subset.json"
-IMAGES_PATH = "datasets/COCO_search18/coco_search18_images_TA"
 
-valid_image_names = list(load_json(INDEX_PATH)[0].keys())
+# Fixed paths for default dataset "COCO"
+# INDEX_PATH = "datasets/COCO_search18/task_image_index.json"
+# FIXATIONS_PATH = "datasets/COCO_search18/fixations_val_subset.json"
+# IMAGES_DIR = "datasets/COCO_search18/coco_search18_images_TA"
 
-@tool("fixation_heat_map", response_format="content_and_artifact", parse_docstring=True)
+# Fixed paths for default dataset "DAEMONS"
+FIXATIONS_PATH = "datasets/eye_movement/SAC_val.csv"
+IMAGES_DIR = "datasets/DAEMONS_potsdam_corpus"
+
+# valid_image_names = list(load_json(INDEX_PATH)[0].keys())
+valid_image_names = [path for path in os.listdir("datasets/DAEMONS_potsdam_corpus") if not path.startswith(".")]
+
+# @tool("fixation_heat_map", response_format="content_and_artifact", parse_docstring=True)
 def tool_fixation_heat_map(subject_ids: list[int|str], image_name: str) ->  Tuple[str, go.Figure]:
     """Generate a heat map of fixation times for one or more subjects.
 
@@ -24,11 +33,12 @@ def tool_fixation_heat_map(subject_ids: list[int|str], image_name: str) ->  Tupl
         image_name: file name of the viewed image
     """
     # Get fixation data and image_path
-    fixations = get_fixations_by_subject(subject_ids, image_name)
-    x, y, t = aggregate_fixations(fixations)
+    fixations_df = get_fixations(subject_ids, image_name)
+    # Get all x, y coordinates and fixation durations
+    x, y, t = fixations_df["x_px"].to_list(), fixations_df["y_px"].to_list(), fixations_df["fixdur"].to_list()
     image_path = get_image_path(image_name)
 
-    fig = get_layout_image_fig(image_path, 1680, 1050)
+    fig = get_layout_image_fig(image_path, 1920, 1080)
     max_time = max(t)
 
     fig.add_trace(
@@ -74,21 +84,21 @@ def tool_scan_path_plot(subject_ids: list[int|str], image_name: str) ->  Tuple[s
         image_name: file name of the viewed image
     """
     # Get fixation data and image_path
-    fixations_dict = get_fixations_by_subject(subject_ids, image_name)
+    df_fixations = get_fixations(subject_ids, image_name)
 
     image_path = get_image_path(image_name)
 
-    fig = get_layout_image_fig(image_path, 1680, 1050)
+    fig = get_layout_image_fig(image_path, 1920, 1080)
 
     # Since there are 10 subjects in the default dataset, a discrete color scale with 10 different colors
     # is enough to generate 10 different colors. For custom datasets, a larger number of different colors
     # might need to be generated.
     colors = px.colors.qualitative.G10
 
-    for i, subject_id in enumerate(fixations_dict.keys()):
+    for i, id in enumerate(df_fixations["VP"].unique()):
         color = colors[i]
-        fixations_for_subject = fixations_dict[subject_id]
-        x, y, t = fixations_for_subject["X"], fixations_for_subject["Y"], fixations_for_subject["T"]
+        fixations_for_subject = df_fixations[df_fixations["VP"] == id]
+        x, y, t = fixations_for_subject["x_px"].to_list(), fixations_for_subject["y_px"].to_list(), fixations_for_subject["fixdur"].to_list()
         fig.add_scatter(x=x, y=y, mode="lines+markers", text=t,
                         hovertemplate="%{text}ms<extra></extra>",
                         marker={
@@ -96,7 +106,7 @@ def tool_scan_path_plot(subject_ids: list[int|str], image_name: str) ->  Tuple[s
                             "symbol": "arrow",
                             "angleref": "previous"
                         },
-                        name=f"ID {subject_id}",
+                        name=f"ID {id}",
                         line={
                             "color": color,
                             "width": 2,
@@ -114,20 +124,10 @@ def tool_scan_path_plot(subject_ids: list[int|str], image_name: str) ->  Tuple[s
     content = f"Generated scan path plot for subjects with ids {subject_ids} and image {image_name}."
     return content, fig
 
-def get_fixations_by_subject(subject_id_list: list[int], image_name: str) -> dict[dict[int]]:
-    """Select fixation data for the given subjects and the given image.
-
-    Returns: dictionary with a structure like this:
-    {
-        "5": {
-            "X": [333, 444, 555],
-            "Y": [555, 444, 333],
-            "T": [111, 222, 333]
-        },
-        ...
-    }
+def get_fixations(subject_id_list: list[int], image_name: str) -> pd.DataFrame:
+    """Select rows with fixation data for the given subjects and image.
     """
-    data = load_json(FIXATIONS_PATH)
+    df = pd.read_csv(FIXATIONS_PATH)
     
     # Adding file extension if it is missing
     if not image_name.endswith(".jpg"):
@@ -135,39 +135,19 @@ def get_fixations_by_subject(subject_id_list: list[int], image_name: str) -> dic
     if image_name not in valid_image_names:
         raise ValueError(f"Image '{image_name}' does not exist. Has to be one of {valid_image_names}")
 
-    selected_trials = {}
-    for trial in data:
-        if trial["name"] == image_name:
-            for subject_id in subject_id_list:
-                if str(trial["subject"]) == str(subject_id):
-                    fixations = {
-                        "X": trial["X"],
-                        "Y": trial["Y"],
-                        "T": trial["T"]
-                        }
-                    selected_trials[str(subject_id)] = fixations
+    df_fixations = df[(df["VP"].isin(subject_id_list)) & (df["Img"] == image_name)]
     
-    if len(selected_trials) == 0:
+    if len(df_fixations) == 0:
         raise ValueError(f"No available data for image '{image_name}' and subject ids: {subject_id_list}")
-    return selected_trials
+    return df_fixations
     
 def get_image_path(image_name: str) -> str:
-    index = load_json(INDEX_PATH)
     # Adding file extension if it is missing
     if not image_name.endswith(".jpg"):
         image_name = image_name+".jpg"
     if image_name not in valid_image_names:
         raise ValueError(f"Image '{image_name}' does not exist. Has to be one of {valid_image_names}")
-    task_name = index[0][image_name]
-    return IMAGES_PATH + "/" + task_name + "/" + image_name
-
-def aggregate_fixations(fixations_by_subject_id: dict[dict[int]]) -> Tuple[list]:
-    x, y, t = [], [], []
-    for fixations in list(fixations_by_subject_id.values()):
-        x.extend(fixations["X"])
-        y.extend(fixations["Y"])
-        t.extend(fixations["T"])
-    return x, y, t
+    return IMAGES_DIR + "/" + image_name
 
 @tool("get_images_for_subject", response_format="content", parse_docstring=True)
 def tool_get_images_for_subject(subject_id: int) -> str:
@@ -219,11 +199,14 @@ def get_layout_image_fig(image_path: str, width: int, height: int) -> go.Figure:
             yref="y",
             opacity=1.0,
             layer="below",
-            source=image
+            source=image,
+            yanchor="bottom"
     )
     fig.update_xaxes(showgrid=False, visible=False, range=(0, width))
-    fig.update_yaxes(showgrid=False, visible=False, scaleanchor='x', range=(height, 0))
+    fig.update_yaxes(showgrid=False, visible=False, scaleanchor='x', range=(0, height))
     return fig
+
+
 
 tools = {
     name[5:]: func for (name, func) in globals().items() if name.startswith("tool_")
