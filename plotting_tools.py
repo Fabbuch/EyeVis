@@ -24,8 +24,8 @@ IMAGES_DIR = "datasets/DAEMONS_potsdam_corpus"
 # valid_image_names = list(load_json(INDEX_PATH)[0].keys())
 valid_image_names = [path for path in os.listdir("datasets/DAEMONS_potsdam_corpus") if not path.startswith(".")]
 
-# @tool("fixation_heat_map", response_format="content_and_artifact", parse_docstring=True)
-def tool_fixation_heat_map(subject_ids: list[int|str], image_name: str) ->  Tuple[str, go.Figure]:
+@tool("fixation_heat_map", response_format="content_and_artifact", parse_docstring=True)
+def tool_fixation_heat_map(subject_ids: list[int], image_name: str) ->  Tuple[str, go.Figure]:
     """Generate a heat map of fixation times for one or more subjects.
 
     Args:
@@ -46,13 +46,13 @@ def tool_fixation_heat_map(subject_ids: list[int|str], image_name: str) ->  Tupl
             hovertemplate="%{z}ms (avg)<extra></extra>",
             xbins={
                 "start": 0, 
-                "end": 1680, 
-                "size": 105
+                "end": 1920, 
+                "size": 120
             }, 
             ybins={
                 "start": 0,
-                "end": 1050,
-                "size": 105
+                "end": 1080,
+                "size": 120
             }, 
             # based on preset 'thermal' with added alpha
             colorscale=[
@@ -75,8 +75,8 @@ def tool_fixation_heat_map(subject_ids: list[int|str], image_name: str) ->  Tupl
     content = f"Generated heat map plot for subjects with ids {subject_ids} and image {image_name}."
     return content, fig
 
-# @tool("scan_path_plot", response_format="content_and_artifact", parse_docstring=True)
-def tool_scan_path_plot(subject_ids: list[int|str], image_name: str) ->  Tuple[str, go.Figure]:
+@tool("scan_path_plot", response_format="content_and_artifact", parse_docstring=True)
+def tool_scan_path_plot(subject_ids: list[int], image_name: str) ->  Tuple[str, go.Figure]:
     """Generate a plot showing the scan path of the fixations of one or more subjects.
 
     Args:
