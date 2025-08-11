@@ -35,7 +35,7 @@ def tool_fixation_heat_map(subject_ids: list[int], image_name: str) ->  Tuple[st
     # Get fixation data and image_path
     fixations_df = get_fixations(subject_ids, image_name)
     # Get all x, y coordinates and fixation durations
-    x, y, t = fixations_df["x_px"].to_list(), fixations_df["y_px"].to_list(), fixations_df["fixdur"].to_list()
+    x, y, t = fixations_df["x_px"].to_list(), fixations_df["y_px"].to_list(), fixations_df["fixation_duration"].to_list()
     image_path = get_image_path(image_name)
 
     fig = get_layout_image_fig(image_path, 1920, 1080)
@@ -95,10 +95,10 @@ def tool_scan_path_plot(subject_ids: list[int], image_name: str) ->  Tuple[str, 
     # might need to be generated.
     colors = px.colors.qualitative.G10
 
-    for i, id in enumerate(df_fixations["VP"].unique()):
+    for i, id in enumerate(df_fixations["id"].unique()):
         color = colors[i]
-        fixations_for_subject = df_fixations[df_fixations["VP"] == id]
-        x, y, t = fixations_for_subject["x_px"].to_list(), fixations_for_subject["y_px"].to_list(), fixations_for_subject["fixdur"].to_list()
+        fixations_for_subject = df_fixations[df_fixations["id"] == id]
+        x, y, t = fixations_for_subject["x_px"].to_list(), fixations_for_subject["y_px"].to_list(), fixations_for_subject["fixation_duration"].to_list()
         fig.add_scatter(x=x, y=y, mode="lines+markers", text=t,
                         hovertemplate="%{text}ms<extra></extra>",
                         marker={
@@ -125,8 +125,7 @@ def tool_scan_path_plot(subject_ids: list[int], image_name: str) ->  Tuple[str, 
     return content, fig
 
 def get_fixations(subject_id_list: list[int], image_name: str) -> pd.DataFrame:
-    """Select rows with fixation data for the given subjects and image.
-    """
+    """Select rows with fixation data for the given subjects and image."""
     df = pd.read_csv(FIXATIONS_PATH)
     
     # Adding file extension if it is missing
@@ -135,7 +134,7 @@ def get_fixations(subject_id_list: list[int], image_name: str) -> pd.DataFrame:
     if image_name not in valid_image_names:
         raise ValueError(f"Image '{image_name}' does not exist. Has to be one of {valid_image_names}")
 
-    df_fixations = df[(df["VP"].isin(subject_id_list)) & (df["Img"] == image_name)]
+    df_fixations = df[(df["id"].isin(subject_id_list)) & (df["image_name"] == image_name)]
     
     if len(df_fixations) == 0:
         raise ValueError(f"No available data for image '{image_name}' and subject ids: {subject_id_list}")
@@ -149,43 +148,40 @@ def get_image_path(image_name: str) -> str:
         raise ValueError(f"Image '{image_name}' does not exist. Has to be one of {valid_image_names}")
     return IMAGES_DIR + "/" + image_name
 
-@tool("get_images_for_subject", response_format="content", parse_docstring=True)
-def tool_get_images_for_subject(subject_id: int) -> str:
-    """Get a list of image names, for which the given subject has fixation data.
+@tool("query_dataset", response_format="content", parse_docstring=True)
+def tool_query_dataset(select: list, where: str) -> dict:
+    """Query the dataset in a simplified SQL syntax.
 
     Args:
-        subject_id: id of a subject
+        select: list of column names to select. valid column names are: id, fixation_duration, image_name
+        where: (optional), SQL-style WHERE statement. e.g. 'id == 8'
     """
-    data = load_json(FIXATIONS_PATH)
-    image_names = []
-    for trial in data:
-        if str(trial["subject"]) == str(subject_id):
-            image_names.append(trial["name"])
-    if len(image_names) == 0:
-        return f"The subject with id {subject_id} has no fixation data or the subject doesn't exist."
-    image_names_str = ", ".join(image_names)
-    content = f"The subject with id {subject_id}, has fixation data for these image_names: {image_names_str}."
-    return content
-
-@tool("get_subjects_for_image", response_format="content", parse_docstring=True)
-def tool_get_subjects_for_image(image_name: str) -> int:
-    """Get a list of subject ids, which have fixation data for the given image.
-
-    Args:
-        image_name: filename of an image
-    """
-    data = load_json(FIXATIONS_PATH)
-    subject_ids = []
-    if image_name not in valid_image_names:
-        raise ValueError(f"Image '{image_name}' does not exist. Has to be one of {valid_image_names}")
-    for trial in data:
-        if str(trial["name"]) == image_name:
-            subject_ids.append(str(trial["subject"]))
-    if len(subject_ids) == 0:
-        return f"For the image {image_name}, there is no fixation data or the image doesn't exist."
-    subject_ids_str = ", ".join(subject_ids)
-    content = f"For the image {image_name}, there is fixation data for these subjects: {subject_ids_str}."
-    return content
+    df = pd.read_csv(FIXATIONS_PATH)
+    valid_col_names = ["id", "fixation_duration", "image_name"]
+    for col_name in select:
+        if col_name not in valid_col_names:
+            raise ValueError(f"Column '{col_name}' does not exist. Has to be one of {valid_col_names}")
+    if where != "":
+        # TODO: further syntax checks before passing WHERE query
+        df_rows_with_value = df.query(where)
+        df_cols = df_rows_with_value[select]
+        if df_cols.empty:
+            raise ValueError(f"No datapoints where this is true: '{where}'")
+        
+        # This returns a string representation, which looks like this:
+        # [
+        #     ["key1", "key2", ...]
+        #     ["row1val1", "row1val2", ...]
+        #     ["row2val1", "row2val2", ...]
+        #     ...
+        # ]
+        header = [list(df_cols.keys())]
+        data = df_cols.drop_duplicates().values.tolist()
+        return header + data
+    df_cols = df[select]
+    header = [list(df_cols.keys())]
+    data = df_cols.drop_duplicates().values.tolist()
+    return header + data
 
 def get_layout_image_fig(image_path: str, width: int, height: int) -> go.Figure:
     fig = go.Figure()
@@ -205,7 +201,6 @@ def get_layout_image_fig(image_path: str, width: int, height: int) -> go.Figure:
     fig.update_xaxes(showgrid=False, visible=False, range=(0, width))
     fig.update_yaxes(showgrid=False, visible=False, scaleanchor='x', range=(0, height))
     return fig
-
 
 
 tools = {
