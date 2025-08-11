@@ -73,7 +73,7 @@ app.layout = dbc.Container([
                 ),
                 html.Div([
                     dcc.Slider(0, 1, 0.2,
-                            value=1,
+                            value=0.8,
                             id="range-slider"
                     ),
                 ], id="hide-div", style= {'display': 'none'})

@@ -6,6 +6,7 @@ from utils import load_json
 import plotly.express as px
 import os
 import pandas as pd
+import re
 
 from langchain_core.tools import tool
 
@@ -95,9 +96,9 @@ def tool_scan_path_plot(subject_ids: list[int], image_name: str) ->  Tuple[str, 
     # might need to be generated.
     colors = px.colors.qualitative.G10
 
-    for i, id in enumerate(df_fixations["id"].unique()):
+    for i, id in enumerate(df_fixations["subject_id"].unique()):
         color = colors[i]
-        fixations_for_subject = df_fixations[df_fixations["id"] == id]
+        fixations_for_subject = df_fixations[df_fixations["subject_id"] == id]
         x, y, t = fixations_for_subject["x_px"].to_list(), fixations_for_subject["y_px"].to_list(), fixations_for_subject["fixation_duration"].to_list()
         fig.add_scatter(x=x, y=y, mode="lines+markers", text=t,
                         hovertemplate="%{text}ms<extra></extra>",
@@ -134,7 +135,7 @@ def get_fixations(subject_id_list: list[int], image_name: str) -> pd.DataFrame:
     if image_name not in valid_image_names:
         raise ValueError(f"Image '{image_name}' does not exist. Has to be one of {valid_image_names}")
 
-    df_fixations = df[(df["id"].isin(subject_id_list)) & (df["image_name"] == image_name)]
+    df_fixations = df[(df["subject_id"].isin(subject_id_list)) & (df["image_name"] == image_name)]
     
     if len(df_fixations) == 0:
         raise ValueError(f"No available data for image '{image_name}' and subject ids: {subject_id_list}")
@@ -149,20 +150,25 @@ def get_image_path(image_name: str) -> str:
     return IMAGES_DIR + "/" + image_name
 
 @tool("query_dataset", response_format="content", parse_docstring=True)
-def tool_query_dataset(select: list, where: str) -> dict:
-    """Query the dataset in a simplified SQL syntax.
+def tool_query_dataset(query: str) -> dict:
+    """Query the dataset using an SQL query.
 
     Args:
-        select: list of column names to select. valid column names are: id, fixation_duration, image_name
-        where: (optional), SQL-style WHERE statement. e.g. 'id == 8'
+        query: an SQL query string. Valid column names are subject_id, fixation_duration, image_name. The dataset is called daemons. For example: 'select subject_id from daemons where image_name == "DAEMONS_corpus_potsdam_0407.jpg"'
     """
     df = pd.read_csv(FIXATIONS_PATH)
-    valid_col_names = ["id", "fixation_duration", "image_name"]
+
+    select = re.search("select (([a-zA-z_]|, )+?) ", query).group(1).split(", ")
+    where = re.search("where (.+)", query).group(1)
+
+    valid_col_names = ["subject_id", "fixation_duration", "image_name"]
     for col_name in select:
         if col_name not in valid_col_names:
             raise ValueError(f"Column '{col_name}' does not exist. Has to be one of {valid_col_names}")
     if where != "":
         # TODO: further syntax checks before passing WHERE query
+        # replacing paired quotation marks
+        where = re.sub('“(.+)”', r'"\1"', where)
         df_rows_with_value = df.query(where)
         df_cols = df_rows_with_value[select]
         if df_cols.empty:
