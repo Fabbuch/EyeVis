@@ -24,7 +24,7 @@ external_stylesheets = [dbc.themes.BOOTSTRAP]
 app = Dash(__name__, external_stylesheets=external_stylesheets, assets_folder=assets_path)
 
 llm = ChatOllama(
-    model="llama3.2:1b",
+    model="llama3.2:3b",
     temperature=0,
     base_url="http://localhost:11434"
 ).bind_tools(list(ptools.tools.values()))
@@ -33,7 +33,7 @@ llm = ChatOllama(
 messages = [
     SystemMessage(
         "You are a data analysis assistant for eye-tracking data. " \
-        "Use the provided tools to answer the user's questions and provide insights about the dataset. " \
+        "Use the provided tools to answer the user's questions about the dataset or generate visualisations. " \
         "Only call one tool at a time."
     )
 ]
@@ -115,43 +115,35 @@ def update_opacity(value, initial_figure):
     prevent_initial_call=True
 )
 def update_output(n_clicks, value, initial_figure):
-    if n_clicks > 0:
-        print(messages)
-        messages.append(HumanMessage(value))
-        ai_message = call_llm()
-        print(ai_message.content, ai_message.tool_calls)
-        if ai_message.tool_calls:
-            tool_call = ai_message.tool_calls[0]
-            fct_name = tool_call["name"]
-            try:
-                tool_message = ptools.tools[fct_name].invoke(tool_call)
-            except ValueError as exc:
-                tool_message = ToolMessage(f"ValueError: {str(exc)}", tool_call_id=n_clicks)
-            messages.append(ToolMessage(tool_message.content, tool_call_id=n_clicks))
+    messages.append(HumanMessage(value))
+    ai_message = call_llm()
+    print(ai_message.content, ai_message.tool_calls)
+    if ai_message.tool_calls:
+        tool_call = ai_message.tool_calls[0]
+        fct_name = tool_call["name"]
+        try:
+            tool_message = ptools.tools[fct_name].invoke(tool_call)
+        except ValueError as exc:
+            tool_message = ToolMessage({str(exc)}, tool_call_id=n_clicks)
+        messages.append(ToolMessage(tool_message.content, tool_call_id=n_clicks))
 
-            message_str = get_message_string()
-            if tool_message.artifact:
-                if tool_message.artifact["data"][0]["type"] == "histogram2d":
-                    return message_str, tool_message.artifact, {"display": "block"}
-                return message_str, tool_message.artifact, {"display": "none"}
-            
-            ai_message = call_llm()
-            content = ai_message.content
-            messages.append(AIMessage(content))
-            return message_str, initial_figure, {"display": "none"}
-
-        content = ai_message.content
-        messages.append(AIMessage(content))
         message_str = get_message_string()
-        return message_str, initial_figure, {"display": "none"}
-    return "", initial_figure, {"display": "none"}
+        if tool_message.artifact:
+            if tool_message.artifact["data"][0]["type"] == "histogram2d":
+                return message_str, tool_message.artifact, {"display": "block"}
+            return message_str, tool_message.artifact, {"display": "none"}
+
+    content = ai_message.content
+    messages.append(AIMessage(content))
+    message_str = get_message_string()
+    return message_str, initial_figure, {"display": "none"}
 
 def call_llm():
     trim_messages(
             messages, 
             token_counter=len,
             strategy="last",
-            max_tokens=10,
+            max_tokens=30,
             include_system=True
         )
     response = llm.invoke(messages)
