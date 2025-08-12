@@ -2,7 +2,7 @@
 # visit http://127.0.0.1:8050/ in your web browser.
 
 import plotting_tools as ptools
-from dash import Dash, html, dcc, Input, Output, State, callback, Patch
+from dash import Dash, html, dcc, Input, Output, State, callback, Patch, no_update
 import dash_bootstrap_components as dbc
 import os
 
@@ -34,7 +34,8 @@ messages = [
     SystemMessage(
         "You are a data analysis assistant for eye-tracking data. " \
         "Use the provided tools to answer the user's questions about the dataset or generate visualisations. " \
-        "Only call one tool at a time."
+        "The dataset is tabular data, where each row represents a fixation. " \
+        f"The table has the following column names: {ptools.valid_col_names}" \
     )
 ]
 
@@ -50,20 +51,10 @@ app.layout = dbc.Container([
     html.Div(children=[
         dbc.Row([
             html.Div(children='''
-                Dash: A web application framework for your data.
+                EyeVis: LLM-assisted data analysis for eye-tracking.
             ''', 
-            style={
-                'textAlign': 'center'
-            })
+            className="h1", style={"textAlign": "center"})
         ]),
-        # dbc.Col([
-        #         dcc.Graph(
-        #             id='test-fig',
-        #             figure=fig,
-        #             style={'width': '100%', 'height': 500}
-        #         )
-        #     ], width=7),
-        
         dbc.Row([
             dbc.Col([
                 dcc.Graph(
@@ -75,8 +66,9 @@ app.layout = dbc.Container([
                     dcc.Slider(0, 1, 0.2,
                             value=0.8,
                             id="range-slider"
-                    ),
-                ], id="hide-div", style= {'display': 'none'})
+                    )
+                ], id="hide-div", style= {'display': 'none'}),
+                html.Div(None, id='fig-type', style= {'display': 'none'})
             ], 
             width=7),
             dbc.Col([
@@ -85,8 +77,10 @@ app.layout = dbc.Container([
                     id='llm-input',
                     value='Make a scan path plot for subject with id 4 and image DAEMONS_corpus_potsdam_0456.jpg',
                     style={'width': '100%', 'height': 100},
+                    className="text-body",
+                    draggable=False,
                 ),
-                html.Button('Submit', id='llm-submit-button', n_clicks=0)
+                dbc.Button('Submit', id='llm-submit-button', n_clicks=0, className="me-2")
             ])
         ])
     ])
@@ -95,20 +89,21 @@ app.layout = dbc.Container([
 @callback(
     Output('figure-output', 'figure', allow_duplicate=True),
     Input('range-slider', 'value'),
-    State('figure-output', 'figure'),
+    State('fig-type', 'children'),
     prevent_initial_call=True
 )
-def update_opacity(value, initial_figure):
-    if initial_figure != None and initial_figure["data"][0]["type"] == "histogram2d":
+def update_opacity(value, fig_type):
+    if fig_type == "histogram2d":
         patched_figure = Patch()
         patched_figure["data"][0]["opacity"] = value
         return patched_figure
-    return initial_figure
+    return no_update
 
 @callback(
     Output('llm-output', 'children'),
     Output('figure-output', 'figure'),
     Output('hide-div', 'style'),
+    Output('fig-type', 'children'),
     Input('llm-submit-button', 'n_clicks'),
     State('llm-input', 'value'),
     State('figure-output', 'figure'),
@@ -119,24 +114,25 @@ def update_output(n_clicks, value, initial_figure):
     ai_message = call_llm()
     print(ai_message.content, ai_message.tool_calls)
     if ai_message.tool_calls:
-        tool_call = ai_message.tool_calls[0]
-        fct_name = tool_call["name"]
-        try:
-            tool_message = ptools.tools[fct_name].invoke(tool_call)
-        except ValueError as exc:
-            tool_message = ToolMessage({str(exc)}, tool_call_id=n_clicks)
-        messages.append(ToolMessage(tool_message.content, tool_call_id=n_clicks))
+        for tool_call in ai_message.tool_calls:
+            fct_name = tool_call["name"]
+            try:
+                tool_message = ptools.tools[fct_name].invoke(tool_call)
+            except ValueError as exc:
+                tool_message = ToolMessage({str(exc)}, tool_call_id=n_clicks)
+            messages.append(ToolMessage(tool_message.content, tool_call_id=n_clicks))
 
-        message_str = get_message_string()
-        if tool_message.artifact:
-            if tool_message.artifact["data"][0]["type"] == "histogram2d":
-                return message_str, tool_message.artifact, {"display": "block"}
-            return message_str, tool_message.artifact, {"display": "none"}
+            message_str = get_message_string()
+            if tool_message.artifact:
+                fig_type = tool_message.artifact["data"][0]["type"]
+                if fig_type == "histogram2d":
+                    return message_str, tool_message.artifact, {"display": "block"}, fig_type
+                return message_str, tool_message.artifact, {"display": "none"}, fig_type
 
     content = ai_message.content
     messages.append(AIMessage(content))
     message_str = get_message_string()
-    return message_str, initial_figure, {"display": "none"}
+    return message_str, initial_figure, {"display": "none"}, None
 
 def call_llm():
     trim_messages(
