@@ -8,6 +8,8 @@ import os
 import pandas as pd
 import re
 
+import duckdb
+
 from langchain_core.tools import tool
 
 from typing import Tuple
@@ -24,6 +26,7 @@ IMAGES_DIR = "datasets/DAEMONS_potsdam_corpus"
 
 # valid_image_names = list(load_json(INDEX_PATH)[0].keys())
 valid_image_names = [path for path in os.listdir("datasets/DAEMONS_potsdam_corpus") if not path.startswith(".")]
+valid_col_names = list(pd.read_csv(FIXATIONS_PATH).keys())
 
 @tool("fixation_heat_map", response_format="content_and_artifact", parse_docstring=True)
 def tool_fixation_heat_map(subject_ids: list[int], image_name: str) ->  Tuple[str, go.Figure]:
@@ -150,43 +153,35 @@ def get_image_path(image_name: str) -> str:
     return IMAGES_DIR + "/" + image_name
 
 @tool("query_dataset", response_format="content", parse_docstring=True)
-def tool_query_dataset(query: str) -> dict:
-    """Query the dataset using an SQL query.
+def tool_query_dataset(query: str) -> list:
+    """Query the dataset using an SQL query (duckdb dialect).
 
     Args:
-        query: an SQL query string. Valid column names are subject_id, fixation_duration, image_name. The dataset is called daemons. For example: 'select subject_id from daemons where image_name == "DAEMONS_corpus_potsdam_0407.jpg"'
+        query: an SQL query string. The dataset is daemons, with each entry being one fixation. use single quotes to escape strings, for example: "select distinct subject_id from daemons where image_name == 'DAEMONS_corpus_potsdam_0061.jpg'"
     """
     df = pd.read_csv(FIXATIONS_PATH)
 
-    select = re.search("select (([a-zA-z_]|, )+?) ", query).group(1).split(", ")
-    where = re.search("where (.+)", query).group(1)
+    query = query.replace("daemons", "tool_query_dataset.df")
+    query = query.replace("“", "'")
+    query = query.replace("”", "'")
+    query = query.replace("\"", "'")
 
     valid_col_names = ["subject_id", "fixation_duration", "image_name"]
-    for col_name in select:
-        if col_name not in valid_col_names:
-            raise ValueError(f"Column '{col_name}' does not exist. Has to be one of {valid_col_names}")
-    if where != "":
-        # TODO: further syntax checks before passing WHERE query
-        # replacing paired quotation marks
-        where = re.sub('“(.+)”', r'"\1"', where)
-        df_rows_with_value = df.query(where)
-        df_cols = df_rows_with_value[select]
-        if df_cols.empty:
-            raise ValueError(f"No datapoints where this is true: '{where}'")
         
-        # This returns a string representation, which looks like this:
-        # [
-        #     ["key1", "key2", ...]
-        #     ["row1val1", "row1val2", ...]
-        #     ["row2val1", "row2val2", ...]
-        #     ...
-        # ]
-        header = [list(df_cols.keys())]
-        data = df_cols.drop_duplicates().values.tolist()
-        return header + data
-    df_cols = df[select]
-    header = [list(df_cols.keys())]
-    data = df_cols.drop_duplicates().values.tolist()
+    try:
+        result_df = duckdb.sql(query).df()
+    except duckdb.duckdb.BinderException as exc:
+        exc_msg = str(exc)
+        invalid_column_math = re.search('Referenced column "(.+)"', exc_msg)
+        if invalid_column_math == None:
+            raise ValueError(f"Query '{query}' could not be processed: {exc_msg}")
+        raise ValueError(f"Column '{invalid_column_math.group(1)}' does not exist. Has to be in {valid_col_names}")
+
+    if result_df.empty:
+        raise ValueError(f"No results for query '{query}'")
+    
+    header = [list(result_df.keys())]
+    data = result_df.drop_duplicates().values.tolist()
     return header + data
 
 def get_layout_image_fig(image_path: str, width: int, height: int) -> go.Figure:
