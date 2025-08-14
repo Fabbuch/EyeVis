@@ -4,7 +4,6 @@
 import plotting_tools as ptools
 from dash import Dash, html, dcc, Input, Output, State, callback, Patch, no_update
 import dash_bootstrap_components as dbc
-import os
 
 from langchain_core.messages import AIMessage
 from langchain_ollama import ChatOllama
@@ -17,11 +16,9 @@ from langchain_core.messages import (
     trim_messages,
 )
 
-assets_path = os.getcwd() +'/datasets'
-
 # Initialize the app - incorporate a Dash Bootstrap theme
 external_stylesheets = [dbc.themes.BOOTSTRAP]
-app = Dash(__name__, external_stylesheets=external_stylesheets, assets_folder=assets_path)
+app = Dash(__name__, external_stylesheets=external_stylesheets, title="EyeVis")
 
 llm = ChatOllama(
     model="llama3.2:3b",
@@ -40,26 +37,29 @@ messages = [
 ]
 
 # make a scan path plot for subject with id 2 and image 000000005600.jpg
-# content, fig = ptools.tool_scan_path_plot([4, 6], "DAEMONS_corpus_potsdam_0456.jpg")
 # content, fig = ptools.tool_fixation_heat_map([6, 1], "DAEMONS_corpus_potsdam_1092.jpg")
 # content, fig = ptools.tool_scan_path_plot([1,2], "000000275791.jpg")
+# _, fig = ptools.tool_fixation_heat_map([4, 6], "DAEMONS_corpus_potsdam_0456.jpg")
 # content, fig = ptools.tool_fixation_heat_map([9,2,10], "000000252771.jpg)
 # content, fig = ptools.tool_fixation_heat_map([9], "000000252771.jpg")
-fig = None
+
+# placeholder figure
+fig = ptools.default_fig_factory()
 
 app.layout = dbc.Container([
     html.Div(children=[
         dbc.Row([
-            html.Div(children='''
-                EyeVis: LLM-assisted data analysis for eye-tracking.
-            ''', 
-            className="h1", style={"textAlign": "center"})
+            html.Div(children="""
+                EyeVis: LLM-assisted data analysis for eye-tracking
+            """, 
+            className="title")
         ]),
         dbc.Row([
             dbc.Col([
                 dcc.Graph(
                     id='figure-output',
                     figure=fig,
+                    className="graph",
                     style={'width': '100%', 'height': 500}
                 ),
                 html.Div([
@@ -67,24 +67,22 @@ app.layout = dbc.Container([
                             value=0.8,
                             id="range-slider"
                     )
-                ], id="hide-div", style= {'display': 'none'}),
+                ], id="hide-div", className="slider"),
                 html.Div(None, id='fig-type', style= {'display': 'none'})
             ], 
-            width=7),
+            width=7, class_name="graph"),
             dbc.Col([
-                html.Div(id='llm-output', style={'whiteSpace': 'pre-line'}),
+                html.Div(id='llm-output', className="output"),
                 dcc.Textarea(
                     id='llm-input',
                     value='Make a scan path plot for subject with id 4 and image DAEMONS_corpus_potsdam_0456.jpg',
-                    style={'width': '100%', 'height': 100},
-                    className="text-body",
-                    draggable=False,
+                    className="textarea"
                 ),
-                dbc.Button('Submit', id='llm-submit-button', n_clicks=0, className="me-2")
-            ])
+                dbc.Button('Submit', id='llm-submit-button', n_clicks=0, class_name="submit")
+            ], class_name="chat")
         ])
     ])
-], fluid=True)
+], fluid=True, className="bg")
 
 @callback(
     Output('figure-output', 'figure', allow_duplicate=True),
@@ -106,13 +104,12 @@ def update_opacity(value, fig_type):
     Output('fig-type', 'children'),
     Input('llm-submit-button', 'n_clicks'),
     State('llm-input', 'value'),
-    State('figure-output', 'figure'),
     prevent_initial_call=True
 )
-def update_output(n_clicks, value, initial_figure):
+def update_output(n_clicks, value):
+    message_str = get_message_string()
     messages.append(HumanMessage(value))
     ai_message = call_llm()
-    print(ai_message.content, ai_message.tool_calls)
     if ai_message.tool_calls:
         for tool_call in ai_message.tool_calls:
             fct_name = tool_call["name"]
@@ -128,11 +125,18 @@ def update_output(n_clicks, value, initial_figure):
                 if fig_type == "histogram2d":
                     return message_str, tool_message.artifact, {"display": "block"}, fig_type
                 return message_str, tool_message.artifact, {"display": "none"}, fig_type
+            
+            # no artifact returned by tool, pass content to LLM, without displaying it to the user
+            ai_message = call_llm()
+            content = ai_message.content
+            messages.append(AIMessage(content))
+            message_str = get_message_string()
+            return message_str, no_update, no_update, no_update
 
     content = ai_message.content
     messages.append(AIMessage(content))
     message_str = get_message_string()
-    return message_str, initial_figure, {"display": "none"}, None
+    return message_str, no_update, no_update, no_update
 
 def call_llm():
     trim_messages(
@@ -143,14 +147,15 @@ def call_llm():
             include_system=True
         )
     response = llm.invoke(messages)
+    print(response.content, response.tool_calls)
     return response
 
 def get_message_string():
-    message_str = "\n".join([
-        message.content for message in messages 
-        if message.type == "human" or message.type == "ai" or message.type == "tool"
-    ])
-    return message_str
+    message_div = [
+        html.Div(message.content, className=f"msg {message.type}")
+        for message in messages if message.type != "system" and message.type != "tool"
+        ]
+    return message_div
 
 if __name__ == '__main__':
     app.run(debug=True)

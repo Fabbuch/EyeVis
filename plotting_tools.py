@@ -43,6 +43,7 @@ def tool_fixation_heat_map(subject_ids: list[int], image_name: str) ->  Tuple[st
     image_path = get_image_path(image_name)
 
     fig = get_layout_image_fig(image_path, 1920, 1080)
+    fig.update_layout({"title": f"Heat map: {image_name}"})
     max_time = max(t)
 
     fig.add_trace(
@@ -93,6 +94,7 @@ def tool_scan_path_plot(subject_ids: list[int], image_name: str) ->  Tuple[str, 
     image_path = get_image_path(image_name)
 
     fig = get_layout_image_fig(image_path, 1920, 1080)
+    fig.update_layout({"title": f"Scan path: {image_name}"})
 
     # Since there are 10 subjects in the default dataset, a discrete color scale with 10 different colors
     # is enough to generate 10 different colors. For custom datasets, a larger number of different colors
@@ -185,7 +187,7 @@ def tool_query_dataset(query: str) -> list:
     return header + data
 
 def get_layout_image_fig(image_path: str, width: int, height: int) -> go.Figure:
-    fig = go.Figure()
+    fig = default_fig_factory()
     image = Image.open(image_path)
     fig.add_layout_image(
             x=0,
@@ -203,6 +205,17 @@ def get_layout_image_fig(image_path: str, width: int, height: int) -> go.Figure:
     fig.update_yaxes(showgrid=False, visible=False, scaleanchor='x', range=(0, height))
     return fig
 
+def default_fig_factory() -> go.Figure:
+    default_figure = go.Figure(
+        layout={
+            "scene": {"aspectratio": {"x": 1920, "y": 1080}},
+            "xaxis": {"visible": True},
+            "yaxis": {"visible": True},
+            "title": "Generate a figure",
+            "margin": {"b": 16, "l": 16, "r": 16, "t": 70}
+            }
+        )
+    return default_figure
 
 tools = {
     name[5:]: func for (name, func) in globals().items() if name.startswith("tool_")
