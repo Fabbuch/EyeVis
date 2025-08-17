@@ -4,6 +4,11 @@
 import plotting_tools as ptools
 from dash import Dash, html, dcc, Input, Output, State, callback, Patch, no_update
 import dash_bootstrap_components as dbc
+import os
+import base64
+import pandas as pd
+import io
+import json
 
 from langchain_core.messages import AIMessage
 from langchain_ollama import ChatOllama
@@ -15,6 +20,8 @@ from langchain_core.messages import (
     ToolMessage,
     trim_messages,
 )
+
+datasets_path = os.getcwd() + "/" + "datasets"
 
 # Initialize the app - incorporate a Dash Bootstrap theme
 external_stylesheets = [dbc.themes.BOOTSTRAP]
@@ -32,16 +39,9 @@ messages = [
         "You are a data analysis assistant for eye-tracking data. " \
         "Use the provided tools to answer the user's questions about the dataset or generate visualisations. " \
         "The dataset is tabular data, where each row represents a fixation. " \
-        f"The table has the following column names: {ptools.valid_col_names}" \
+        f"The table has the following column names: {ptools.get_valid_col_names('DAEMONS')}" \
     )
 ]
-
-# make a scan path plot for subject with id 2 and image 000000005600.jpg
-# content, fig = ptools.tool_fixation_heat_map([6, 1], "DAEMONS_corpus_potsdam_1092.jpg")
-# content, fig = ptools.tool_scan_path_plot([1,2], "000000275791.jpg")
-# _, fig = ptools.tool_fixation_heat_map([4, 6], "DAEMONS_corpus_potsdam_0456.jpg")
-# content, fig = ptools.tool_fixation_heat_map([9,2,10], "000000252771.jpg)
-# content, fig = ptools.tool_fixation_heat_map([9], "000000252771.jpg")
 
 # placeholder figure
 fig = ptools.default_fig_factory()
@@ -49,11 +49,21 @@ fig = ptools.default_fig_factory()
 app.layout = dbc.Container([
     html.Div(children=[
         dbc.Row([
-            html.Div(children="""
-                EyeVis: LLM-assisted data analysis for eye-tracking
-            """, 
-            className="title")
-        ]),
+            html.Div(children="EyeVis: LLM-assisted data analysis for eye-tracking", 
+            className="title"),
+            html.Hr(className="line"),
+            html.Div(id="dataset-info", children="Currently selected dataset: DAEMONS", className="curr"),
+            dcc.Upload(
+                id="file-upload",
+                className="upload",
+                children=html.Div(
+                    ["Drag and Drop or ", html.A("Select Files")]
+                ),
+                multiple=True),
+            dcc.Store(id='dataset-name', data='DAEMONS'),
+            dcc.Store(id='csv-data', data=None),
+            dcc.Store(id='img-files', data=None),
+        ], class_name="top"),
         dbc.Row([
             dbc.Col([
                 dcc.Graph(
@@ -68,14 +78,14 @@ app.layout = dbc.Container([
                             id="range-slider"
                     )
                 ], id="hide-div", className="slider"),
-                html.Div(None, id='fig-type', style= {'display': 'none'})
+                dcc.Store(id='fig-type', data=None)
             ], 
             width=7, class_name="graph"),
             dbc.Col([
                 html.Div(id='llm-output', className="output"),
                 dcc.Textarea(
                     id='llm-input',
-                    value='Make a scan path plot for subject with id 4 and image DAEMONS_corpus_potsdam_0456.jpg',
+                    value='Make a scan path plot for subject with id 4 and image 0456.jpg',
                     className="textarea"
                 ),
                 dbc.Button('Submit', id='llm-submit-button', n_clicks=0, class_name="submit")
@@ -87,7 +97,7 @@ app.layout = dbc.Container([
 @callback(
     Output('figure-output', 'figure', allow_duplicate=True),
     Input('range-slider', 'value'),
-    State('fig-type', 'children'),
+    State('fig-type', 'data'),
     prevent_initial_call=True
 )
 def update_opacity(value, fig_type):
@@ -101,42 +111,59 @@ def update_opacity(value, fig_type):
     Output('llm-output', 'children'),
     Output('figure-output', 'figure'),
     Output('hide-div', 'style'),
-    Output('fig-type', 'children'),
+    Output('fig-type', 'data'),
     Input('llm-submit-button', 'n_clicks'),
     State('llm-input', 'value'),
+    State('dataset-name', 'data'),
+    State('csv-data', 'data'),
+    State('img-files', 'data'),
     prevent_initial_call=True
 )
-def update_output(n_clicks, value):
-    message_str = get_message_string()
+def update_output(n_clicks, value, dataset_name, csv_data, img_files):
+    chat_history = get_chat_history()
     messages.append(HumanMessage(value))
     ai_message = call_llm()
     if ai_message.tool_calls:
         for tool_call in ai_message.tool_calls:
             fct_name = tool_call["name"]
+            fixation_df = None
+            img_files_dict = None
+            if csv_data != None:
+                fixation_df = pd.DataFrame.from_records(csv_data)
+            if img_files != None:
+                img_files_dict = json.loads(img_files)
+            # inject dataset name
+            arg_names = list(ptools.tools[fct_name].get_input_schema().model_json_schema()["properties"].keys())
+            tool_call["args"]["dataset_name"] = dataset_name
+            if "fixation_df" in arg_names:
+                tool_call["args"]["fixation_df"] = fixation_df
+            if "img_files" in arg_names:
+                tool_call["args"]["img_files"] = img_files_dict
             try:
                 tool_message = ptools.tools[fct_name].invoke(tool_call)
             except ValueError as exc:
                 tool_message = ToolMessage({str(exc)}, tool_call_id=n_clicks)
+                return chat_history, no_update, no_update, no_update
             messages.append(ToolMessage(tool_message.content, tool_call_id=n_clicks))
 
-            message_str = get_message_string()
+            chat_history = get_chat_history()
             if tool_message.artifact:
                 fig_type = tool_message.artifact["data"][0]["type"]
                 if fig_type == "histogram2d":
-                    return message_str, tool_message.artifact, {"display": "block"}, fig_type
-                return message_str, tool_message.artifact, {"display": "none"}, fig_type
+                    return chat_history, tool_message.artifact, {"display": "block"}, fig_type
+                return chat_history, tool_message.artifact, {"display": "none"}, fig_type
             
             # no artifact returned by tool, pass content to LLM, without displaying it to the user
             ai_message = call_llm()
             content = ai_message.content
             messages.append(AIMessage(content))
-            message_str = get_message_string()
-            return message_str, no_update, no_update, no_update
+            chat_history = get_chat_history()
+            return chat_history, no_update, no_update, no_update
 
     content = ai_message.content
     messages.append(AIMessage(content))
-    message_str = get_message_string()
-    return message_str, no_update, no_update, no_update
+    chat_history = get_chat_history()
+    return chat_history, no_update, no_update, no_update
 
 def call_llm():
     trim_messages(
@@ -150,7 +177,36 @@ def call_llm():
     print(response.content, response.tool_calls)
     return response
 
-def get_message_string():
+@callback(
+    Output('dataset-name', 'data'),
+    Output('dataset-info', 'children'),
+    Output('csv-data', 'data'),
+    Output('img-files', 'data'),
+    Input('file-upload', 'filename'),
+    Input('file-upload', 'contents'),
+    prevent_initial_call=True
+)
+def store_uploaded_dataset(filenames, contents):
+    csv_data = None
+    img_files = {}
+    dataset_name = None
+    for filename, content in zip(filenames, contents):
+        if filename.endswith(".csv"):
+            _, content_string = content.split(',')
+            decoded = base64.b64decode(content_string)
+            df = pd.read_csv(io.StringIO(decoded.decode("utf-8")))
+            missing_columns = ptools.find_missing_columns(df)
+            if missing_columns == 0:
+                #TODO: alert the user that there are missing columns
+                ...
+            csv_data = df.to_dict('records')
+            dataset_name = filename
+        if filename.endswith(".jpg"):
+            img_files[filename] = content
+    img_files_json = json.dumps(img_files)
+    return dataset_name, f"Currently selected dataset: {dataset_name}", csv_data, img_files_json
+
+def get_chat_history() -> list[html.Div]:
     message_div = [
         html.Div(message.content, className=f"msg {message.type}")
         for message in messages if message.type != "system" and message.type != "tool"
