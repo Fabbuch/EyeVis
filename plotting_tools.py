@@ -21,7 +21,7 @@ DEFAULT_DATASETS = ['DAEMONS']
 
 @tool("fixation_heat_map", response_format="content_and_artifact", parse_docstring=True)
 def tool_fixation_heat_map(
-        subject_ids: list[int],
+        subject_ids: list[int] | int,
         image_name: str,
         dataset_name: Annotated[str, InjectedToolArg],
         fixation_df: Annotated[Any, InjectedToolArg],
@@ -36,6 +36,10 @@ def tool_fixation_heat_map(
         fixation_df: dataframe of fixation data from uploaded dataset. None if the dataset is one of the predefined default datasets
         img_files: dict of base64 encoded binary image files, with filenames as keys. None if the dataset is one of the predefined default datasets
     """
+    # input validation: assure subject_ids is a list
+    if isinstance(subject_ids, int):
+        subject_ids = [subject_ids]
+    
     if dataset_name in DEFAULT_DATASETS:
         # Get fixation data and image_path
         fixations_path = get_fixations_path(dataset_name)
@@ -99,7 +103,7 @@ def tool_fixation_heat_map(
 
 @tool("scan_path_plot", response_format="content_and_artifact", parse_docstring=True)
 def tool_scan_path_plot(
-        subject_ids: list[int],
+        subject_ids: list[int] | int,
         image_name: str,
         dataset_name: Annotated[str, InjectedToolArg],
         fixation_df: Annotated[Any, InjectedToolArg],
@@ -114,6 +118,10 @@ def tool_scan_path_plot(
         fixation_df: dataframe of fixation data from uploaded dataset. None if the dataset is one of the predefined default datasets
         img_files: dict of base64 encoded binary image files, with filenames as keys. None if the dataset is one of the predefined default datasets
     """
+    # input validation:
+    if isinstance(subject_ids, int):
+        subject_ids = [subject_ids]
+
     if dataset_name in DEFAULT_DATASETS:
         # Get fixation data and image_path
         fixations_path = get_fixations_path(dataset_name)
@@ -127,7 +135,7 @@ def tool_scan_path_plot(
         decoded = base64.b64decode(content_string)
         image_data = BytesIO(decoded)
 
-    fig, width, height = get_layout_image_fig(image_data)
+    fig, _, _ = get_layout_image_fig(image_data)
 
     fixation_df = get_fixations(subject_ids, image_name, fixation_df)
 
