@@ -64,6 +64,7 @@ app.layout = dbc.Container([
             dcc.Store(id='csv-data', data=None),
             dcc.Store(id='img-files', data=None),
         ], class_name="top"),
+        dbc.Alert(id="alert-missing", color="danger", class_name="alert", is_open=False),
         dbc.Row([
             dbc.Col([
                 dcc.Graph(
@@ -145,6 +146,7 @@ def update_output(n_clicks, value, dataset_name, csv_data, img_files):
                 tool_message = ToolMessage({str(exc)}, tool_call_id=n_clicks)
                 return chat_history, no_update, no_update, no_update
             messages.append(ToolMessage(tool_message.content, tool_call_id=n_clicks))
+            print(tool_message.content)
 
             chat_history = get_chat_history()
             if tool_message.artifact:
@@ -182,6 +184,8 @@ def call_llm():
     Output('dataset-info', 'children'),
     Output('csv-data', 'data'),
     Output('img-files', 'data'),
+    Output('alert-missing', 'is_open'),
+    Output('alert-missing', 'children'),
     Input('file-upload', 'filename'),
     Input('file-upload', 'contents'),
     prevent_initial_call=True
@@ -196,15 +200,15 @@ def store_uploaded_dataset(filenames, contents):
             decoded = base64.b64decode(content_string)
             df = pd.read_csv(io.StringIO(decoded.decode("utf-8")))
             missing_columns = ptools.find_missing_columns(df)
-            if missing_columns == 0:
-                #TODO: alert the user that there are missing columns
-                ...
+            if missing_columns:
+                missing_columns_str = ", ".join(missing_columns)
+                return no_update, no_update, no_update, no_update, True, f"Uploaded csv needs columns: {missing_columns_str}"
             csv_data = df.to_dict('records')
             dataset_name = filename
         if filename.endswith(".jpg"):
             img_files[filename] = content
     img_files_json = json.dumps(img_files)
-    return dataset_name, f"Currently selected dataset: {dataset_name}", csv_data, img_files_json
+    return dataset_name, f"Currently selected dataset: {dataset_name}", csv_data, img_files_json, False, no_update
 
 def get_chat_history() -> list[html.Div]:
     message_div = [

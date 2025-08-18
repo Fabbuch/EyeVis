@@ -48,9 +48,9 @@ def tool_fixation_heat_map(
         image_data = get_image_path(image_name, img_dir, dataset_name)
     else:
         # custom dataset
+        if not image_name.endswith(".jpg"):
+            image_name = image_name+".jpg"
         if image_name not in img_files.keys():
-            if not image_name.endswith(".jpg"):
-                image_name = image_name+".jpg"
             raise ValueError(f"Image '{image_name}' does not exist in dataset {dataset_name}. Has to be one of {list(img_files.keys())}")
         img_string = img_files[image_name]
         _, content_string = img_string.split(',')
@@ -130,6 +130,10 @@ def tool_scan_path_plot(
         image_data = get_image_path(image_name, img_dir, dataset_name)
     else:
         # custom dataset
+        if not image_name.endswith(".jpg"):
+            image_name = image_name+".jpg"
+        if image_name not in img_files.keys():
+            raise ValueError(f"Image '{image_name}' does not exist in dataset {dataset_name}. Has to be one of {list(img_files.keys())}")
         img_string = img_files[image_name]
         _, content_string = img_string.split(',')
         decoded = base64.b64decode(content_string)
@@ -163,15 +167,6 @@ def tool_scan_path_plot(
                             "width": 2,
                         }
                     )
-    # # Add circle marker at start:
-    # fig.add_scatter(x=x[:1], y=y[:1], mode="markers",
-    #                 hovertemplate="Start<extra></extra>",
-    #                 marker={
-    #                     "size": 12,
-    #                     "symbol": "circle",
-    #                     "color": "red"
-    #                 },
-    #             )
     content = f"Generated scan path plot for subjects with ids {subject_ids} and image {image_name}."
     return content, fig
 
