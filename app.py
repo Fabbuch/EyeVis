@@ -49,7 +49,7 @@ fig = ptools.default_fig_factory(1920, 1080)
 app.layout = dbc.Container([
     html.Div(children=[
         dbc.Row([
-            html.Div(children="EyeVis: LLM-assisted data analysis for eye-tracking", 
+            html.Div(children="EyeVis: LLM-assisted data analysis for eye-tracking Data", 
             className="title"),
             html.Hr(className="line"),
             html.Div(id="dataset-info", children="Currently selected dataset: DAEMONS", className="curr"),
