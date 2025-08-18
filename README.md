@@ -7,7 +7,7 @@ This is a data app made with [Dash](https://dash.plotly.com/).
 This app uses llama3.2:3b a small, quantized llama language model (run locally through [ollama](https://ollama.com/)) by default, but can be configured to use other language models that support tool calling.
 Before running this app, make sure to download ollama and run
 ```bash
-ollama run llama3.2:3b
+ollama pull llama3.2:3b
 ```
 To download the llama3.2:3b model (this requires 2GB of disk space).
 Also make sure to install all other required python dependencies with
