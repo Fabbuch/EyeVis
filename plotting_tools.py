@@ -229,9 +229,9 @@ def tool_query_dataset(
     return header + data
 
 def get_layout_image_fig(image_path: str | BytesIO) -> tuple[go.Figure, int, int]:
-    fig = default_fig_factory()
     image = Image.open(image_path)
     width, height = image.size
+    fig = default_fig_factory(width, height)
     fig.add_layout_image(
             x=0,
             sizex=width,
@@ -248,10 +248,10 @@ def get_layout_image_fig(image_path: str | BytesIO) -> tuple[go.Figure, int, int
     fig.update_yaxes(showgrid=False, visible=False, scaleanchor='x', range=(0, height))
     return fig, width, height
 
-def default_fig_factory() -> go.Figure:
+def default_fig_factory(width: int, height: int) -> go.Figure:
     default_figure = go.Figure(
         layout={
-            "scene": {"aspectratio": {"x": 1920, "y": 1080}},
+            "scene": {"aspectratio": {"x": width, "y": height}},
             "xaxis": {"visible": True},
             "yaxis": {"visible": True},
             "title": "Generate a figure",

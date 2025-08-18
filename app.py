@@ -44,7 +44,7 @@ messages = [
 ]
 
 # placeholder figure
-fig = ptools.default_fig_factory()
+fig = ptools.default_fig_factory(1920, 1080)
 
 app.layout = dbc.Container([
     html.Div(children=[
