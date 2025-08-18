@@ -93,5 +93,19 @@
 }
 
 .curr {
-    /* TODO: add styles */
+    color: black;
+    margin-bottom: 4px;
+}
+
+.dropdown {
+    width: 120px;
+    margin-bottom: 4px;
+}
+
+.alert {
+    border-width: 1px;
+    border-radius: 5px;
+    text-align: center;
+    width: fit-content;
+    margin-left: 24px;
 }

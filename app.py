@@ -52,7 +52,10 @@ app.layout = dbc.Container([
             html.Div(children="EyeVis: LLM-assisted data analysis for eye-tracking Data", 
             className="title"),
             html.Hr(className="line"),
-            html.Div(id="dataset-info", children="Currently selected dataset: DAEMONS", className="curr"),
+            dbc.Row([
+                html.Div(id="dataset-info", children="Currently selected dataset:", className="curr"),
+                dcc.Dropdown(options=['DAEMONS'], value='DAEMONS', id='dataset-dropdown', clearable=False, className="dropdown")
+                ], class_name="upload-row"),
             dcc.Upload(
                 id="file-upload",
                 className="upload",
@@ -180,12 +183,13 @@ def call_llm():
     return response
 
 @callback(
-    Output('dataset-name', 'data'),
-    Output('dataset-info', 'children'),
+    Output('dataset-name', 'data', allow_duplicate=True),
     Output('csv-data', 'data'),
     Output('img-files', 'data'),
     Output('alert-missing', 'is_open'),
     Output('alert-missing', 'children'),
+    Output('dataset-dropdown', 'options'),
+    Output('dataset-dropdown', 'value'),
     Input('file-upload', 'filename'),
     Input('file-upload', 'contents'),
     prevent_initial_call=True
@@ -202,13 +206,21 @@ def store_uploaded_dataset(filenames, contents):
             missing_columns = ptools.find_missing_columns(df)
             if missing_columns:
                 missing_columns_str = ", ".join(missing_columns)
-                return no_update, no_update, no_update, no_update, True, f"Uploaded csv needs columns: {missing_columns_str}"
+                return no_update, no_update, no_update, True, f"Uploaded csv needs columns: {missing_columns_str}", no_update, no_update
             csv_data = df.to_dict('records')
             dataset_name = filename
         if filename.endswith(".jpg"):
             img_files[filename] = content
     img_files_json = json.dumps(img_files)
-    return dataset_name, f"Currently selected dataset: {dataset_name}", csv_data, img_files_json, False, no_update
+    return dataset_name, csv_data, img_files_json, False, no_update, ["DAEMONS", dataset_name], dataset_name
+
+@callback(
+    Output('dataset-name', 'data', allow_duplicate=True),
+    Input('dataset-dropdown', 'value'),
+    prevent_initial_call=True
+)
+def update_selected_dataset(value):
+    return value, f"Currently selected dataset: {value}"
 
 def get_chat_history() -> list[html.Div]:
     message_div = [
