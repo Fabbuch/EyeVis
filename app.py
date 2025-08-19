@@ -147,6 +147,7 @@ def update_output(n_clicks, value, dataset_name, csv_data, img_files):
                 tool_message = ptools.tools[fct_name].invoke(tool_call)
             except ValueError as exc:
                 tool_message = ToolMessage({str(exc)}, tool_call_id=n_clicks)
+                print(exc)
                 return chat_history, no_update, no_update, no_update
             messages.append(ToolMessage(tool_message.content, tool_call_id=n_clicks))
             print(tool_message.content)
@@ -220,7 +221,7 @@ def store_uploaded_dataset(filenames, contents):
     prevent_initial_call=True
 )
 def update_selected_dataset(value):
-    return value, f"Currently selected dataset: {value}"
+    return value
 
 def get_chat_history() -> list[html.Div]:
     message_div = [
