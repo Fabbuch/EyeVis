@@ -18,7 +18,7 @@ from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
     ToolMessage,
-    trim_messages,
+    trim_messages
 )
 
 datasets_path = os.getcwd() + "/" + "datasets"
@@ -34,13 +34,13 @@ llm = ChatOllama(
 ).bind_tools(list(ptools.tools.values()))
 
 # initialize message history:
-messages = [
-    SystemMessage(
+initial_messages = [
+    {"content":
         "You are a data analysis assistant for eye-tracking data. " \
         "Use the provided tools to answer the user's questions about the dataset or generate visualisations. " \
         "The dataset is tabular data, where each row represents a fixation. " \
         f"The table has the following column names: {ptools.get_valid_col_names('DAEMONS')}" \
-    )
+    , "role": "system"}
 ]
 
 # placeholder figure
@@ -86,7 +86,13 @@ app.layout = dbc.Container([
             ], 
             width=7, class_name="graph"),
             dbc.Col([
-                html.Div(id='llm-output', className="output"),
+                html.Div(id='llm-output', className="output"), 
+                dcc.Loading(
+                    id='loading-response',
+                    type='dot',
+                    show_initially=False,
+                    children=[dcc.Store('messages', data=initial_messages)]
+                ),
                 dcc.Textarea(
                     id='llm-input',
                     value='Make a scan path plot for subject with id 4 and image 0456.jpg',
@@ -112,6 +118,7 @@ def update_opacity(value, fig_type):
     return no_update
 
 @callback(
+    Output('messages', 'data'),
     Output('llm-output', 'children'),
     Output('figure-output', 'figure'),
     Output('hide-div', 'style'),
@@ -121,12 +128,13 @@ def update_opacity(value, fig_type):
     State('dataset-name', 'data'),
     State('csv-data', 'data'),
     State('img-files', 'data'),
+    State('messages', 'data'),
     prevent_initial_call=True
 )
-def update_output(n_clicks, value, dataset_name, csv_data, img_files):
-    chat_history = get_chat_history()
-    messages.append(HumanMessage(value))
-    ai_message = call_llm()
+def update_output(n_clicks, value, dataset_name, csv_data, img_files, messages):
+    chat_history = get_chat_history(messages)
+    messages.append({"content": value, "role": "human"})
+    ai_message = call_llm(messages)
     if ai_message.tool_calls:
         for tool_call in ai_message.tool_calls:
             fct_name = tool_call["name"]
@@ -146,32 +154,32 @@ def update_output(n_clicks, value, dataset_name, csv_data, img_files):
             try:
                 tool_message = ptools.tools[fct_name].invoke(tool_call)
             except ValueError as exc:
-                tool_message = ToolMessage({str(exc)}, tool_call_id=n_clicks)
+                tool_message = {"content": {str(exc)}, "tool_call_id": n_clicks, "role": "tool"}
                 print(exc)
-                return chat_history, no_update, no_update, no_update
-            messages.append(ToolMessage(tool_message.content, tool_call_id=n_clicks))
+                return messages, chat_history, no_update, no_update, no_update
+            messages.append({"content": tool_message.content, "tool_call_id": n_clicks, "role": "tool"})
             print(tool_message.content)
 
-            chat_history = get_chat_history()
+            chat_history = get_chat_history(messages)
             if tool_message.artifact:
                 fig_type = tool_message.artifact["data"][0]["type"]
                 if fig_type == "histogram2d":
-                    return chat_history, tool_message.artifact, {"display": "block"}, fig_type
-                return chat_history, tool_message.artifact, {"display": "none"}, fig_type
+                    return messages, chat_history, tool_message.artifact, {"display": "block"}, fig_type
+                return messages, chat_history, tool_message.artifact, {"display": "none"}, fig_type
             
             # no artifact returned by tool, pass content to LLM, without displaying it to the user
-            ai_message = call_llm()
+            ai_message = call_llm(messages)
             content = ai_message.content
-            messages.append(AIMessage(content))
-            chat_history = get_chat_history()
-            return chat_history, no_update, no_update, no_update
+            messages.append({"content": content, "role": "ai"})
+            chat_history = get_chat_history(messages)
+            return messages, chat_history, no_update, no_update, no_update
 
     content = ai_message.content
-    messages.append(AIMessage(content))
-    chat_history = get_chat_history()
-    return chat_history, no_update, no_update, no_update
+    messages.append({"content": content, "role": "ai"})
+    chat_history = get_chat_history(messages)
+    return messages, chat_history, no_update, no_update, no_update
 
-def call_llm():
+def call_llm(messages: list):
     trim_messages(
             messages, 
             token_counter=len,
@@ -223,10 +231,10 @@ def store_uploaded_dataset(filenames, contents):
 def update_selected_dataset(value):
     return value
 
-def get_chat_history() -> list[html.Div]:
+def get_chat_history(messages: list) -> list[html.Div]:
     message_div = [
-        html.Div(message.content, className=f"msg {message.type}")
-        for message in messages if message.type != "system" and message.type != "tool"
+        html.Div(message["content"], className=f"msg {message['role']}")
+        for message in messages if message["role"] != "system" and message["role"] != "tool"
         ]
     return message_div
 

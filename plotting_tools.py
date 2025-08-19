@@ -209,6 +209,7 @@ def tool_query_dataset(
     query = query.replace("“", "'")
     query = query.replace("”", "'")
     query = query.replace("\"", "'")
+    query = query.replace("’", "'")
 
     valid_col_names = list(fixation_df.columns)
         
