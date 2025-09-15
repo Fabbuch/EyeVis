@@ -160,7 +160,6 @@ def update_opacity(value, fig_type):
 
 @callback(
     Output('messages', 'data', allow_duplicate=True),
-    Output('llm-output', 'children', allow_duplicate=True),
     Output('figure-output', 'figure'),
     Output('hide-div', 'style'),
     Output('fig-type', 'data'),
@@ -173,7 +172,6 @@ def update_opacity(value, fig_type):
     prevent_initial_call=True
 )
 def update_output(n_clicks, value, dataset_name, csv_data, img_files, messages):
-    chat_history = get_chat_history(messages)
     messages.append({"content": value, "role": "human"})
     ai_message = call_llm(messages)
     if ai_message.tool_calls:
@@ -197,7 +195,7 @@ def update_output(n_clicks, value, dataset_name, csv_data, img_files, messages):
             except ValueError as exc:
                 tool_message = {"content": {str(exc)}, "tool_call_id": f"{n_clicks}e", "role": "tool"}
                 print(exc)
-                return messages, chat_history, no_update, no_update, no_update
+                return messages, no_update, no_update, no_update
             
             # No exception occured:
             # Mark tool call with 'a' for artifact or 'c' for content-only
@@ -205,24 +203,21 @@ def update_output(n_clicks, value, dataset_name, csv_data, img_files, messages):
             messages.append({"content": tool_message.content, "tool_call_id": tool_call_id_tag, "role": "tool"})
             print(tool_message.content)
 
-            chat_history = get_chat_history(messages)
             if tool_message.artifact:
                 fig_type = tool_message.artifact["data"][0]["type"]
                 if fig_type == "histogram2d":
-                    return messages, chat_history, tool_message.artifact, {"display": "block"}, fig_type
-                return messages, chat_history, tool_message.artifact, {"display": "none"}, fig_type
+                    return messages, tool_message.artifact, {"display": "block"}, fig_type
+                return messages, tool_message.artifact, {"display": "none"}, fig_type
             
             # no artifact returned by tool, pass content to LLM, without displaying it to the user
             ai_message = call_llm(messages)
             content = ai_message.content
             messages.append({"content": content, "role": "ai"})
-            chat_history = get_chat_history(messages)
-            return messages, chat_history, no_update, no_update, no_update
+            return messages, no_update, no_update, no_update
 
     content = ai_message.content
     messages.append({"content": content, "role": "ai"})
-    chat_history = get_chat_history(messages)
-    return messages, chat_history, no_update, no_update, no_update
+    return messages, no_update, no_update, no_update
 
 @callback(
     Output('dataset-name', 'data', allow_duplicate=True),
@@ -233,10 +228,6 @@ def update_output(n_clicks, value, dataset_name, csv_data, img_files, messages):
     Output('dataset-dropdown', 'options'),
     Output('dataset-dropdown', 'value'),
     Output('messages', 'data', allow_duplicate=True),
-    Output('llm-output', 'children', allow_duplicate=True),
-    Output('figure-output', 'figure', allow_duplicate=True),
-    Output('hide-div', 'style', allow_duplicate=True),
-    Output('fig-type', 'data', allow_duplicate=True),
     Input('file-upload', 'filename'),
     Input('file-upload', 'contents'),
     prevent_initial_call=True
@@ -253,27 +244,25 @@ def store_uploaded_dataset(filenames, contents):
             missing_columns = ptools.find_missing_columns(df)
             if missing_columns:
                 missing_columns_str = ", ".join(missing_columns)
-                return no_update, no_update, no_update, True, f"Uploaded csv needs columns: {missing_columns_str}", no_update, no_update, no_update, no_update, no_update, no_update, no_update
+                return no_update, no_update, no_update, True, f"Uploaded csv needs columns: {missing_columns_str}", no_update, no_update, no_update
             csv_data = df.to_dict('records')
             dataset_name = filename
             # construct re-initialized system message
             re_initial_messages = initialize_chat_history_for_dataset(df)
-            chat_history = get_chat_history(re_initial_messages)
         if filename.endswith(".jpg"):
             img_files[filename] = content
     img_files_json = json.dumps(img_files)
     # if dataset size exceeds 8MB, alert the user
     sys.getsizeof(img_files_json) + sys.getsizeof(csv_data)
     if sys.getsizeof(img_files_json) + sys.getsizeof(csv_data) > 8000000:
-        return no_update, no_update, no_update, True, "Uploaded dataset needs to be smaller than 8MB.", no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        return no_update, no_update, no_update, True, "Uploaded dataset needs to be smaller than 8MB.", no_update, no_update, no_update
     if csv_data == None:
-        return no_update, no_update, no_update, True, 'Upload a "fixations.csv" file alongside the images.', no_update, no_update, no_update, no_update, no_update, no_update, no_update
-    return dataset_name, csv_data, img_files_json, False, no_update, ["DAEMONS", dataset_name], dataset_name, re_initial_messages, chat_history, fig, {"display": "none"}, None
+        return no_update, no_update, no_update, True, 'Upload a "fixations.csv" file alongside the images.', no_update, no_update, no_update
+    return dataset_name, csv_data, img_files_json, False, no_update, ["DAEMONS", dataset_name], dataset_name, re_initial_messages
 
 @callback(
     Output('dataset-name', 'data', allow_duplicate=True),
     Output('messages', 'data', allow_duplicate=True),
-    Output('llm-output', 'children', allow_duplicate=True),
     Output('figure-output', 'figure', allow_duplicate=True),
     Output('hide-div', 'style', allow_duplicate=True),
     Output('fig-type', 'data', allow_duplicate=True),
@@ -288,8 +277,15 @@ def update_selected_dataset(value, csv_data):
     elif csv_data != None:
         df = csv_data
         re_initial_messages = initialize_chat_history_for_dataset(df)
-    chat_history = get_chat_history(re_initial_messages)
-    return value, re_initial_messages, chat_history, fig, {"display": "none"}, None
+    return value, re_initial_messages, fig, {"display": "none"}, None
+
+@callback(
+    Output('llm-output', 'children', allow_duplicate=True),
+    Input('messages', 'data'),
+    prevent_initial_call=True
+)
+def update_llm_output(messages):
+    return get_chat_history(messages)
 
 if __name__ == '__main__':
     app.run(debug=True)
