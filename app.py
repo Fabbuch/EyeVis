@@ -101,6 +101,43 @@ app.layout = dbc.Container([
     ])
 ], fluid=True, className="bg")
 
+def call_llm(messages: list):
+    trim_messages(
+            messages, 
+            token_counter=len,
+            strategy="last",
+            max_tokens=30,
+            include_system=True
+        )
+    response = llm.invoke(messages)
+    print(response.content, response.tool_calls)
+    return response
+
+def get_chat_history(messages: list) -> list[html.Div]:
+    message_div = [
+        html.Div(message["content"], className=f"msg {message['role']}")
+        for message in messages 
+        # This means the message is a human message
+        if ((message["role"] != "system") and (message["role"] != "tool"))
+        # This only gets checked when the message is not a 'human' message
+        # it picks out tool messages that have an artifact and content
+        or ((message["role"] == "tool") and (message["tool_call_id"].endswith("a")))
+        ]
+    return message_div
+
+def get_empty_history_for_dataset_csv(dataset_csv: pd.DataFrame) -> list:
+    col_names = list(dataset_csv.columns)
+    system_message = [
+        {
+            "content":
+                "You are a data analysis assistant for eye-tracking data. " \
+                "Use the provided tools to answer the user's questions about the dataset or generate visualisations. " \
+                "The dataset is tabular data, where each row represents a fixation. " \
+                f"The table has the following column names: {col_names}" \
+        , "role": "system"}
+    ]
+    return system_message
+
 @callback(
     Output('figure-output', 'figure', allow_duplicate=True),
     Input('range-slider', 'value'),
@@ -115,8 +152,8 @@ def update_opacity(value, fig_type):
     return no_update
 
 @callback(
-    Output('messages', 'data'),
-    Output('llm-output', 'children'),
+    Output('messages', 'data', allow_duplicate=True),
+    Output('llm-output', 'children', allow_duplicate=True),
     Output('figure-output', 'figure'),
     Output('hide-div', 'style'),
     Output('fig-type', 'data'),
@@ -180,18 +217,6 @@ def update_output(n_clicks, value, dataset_name, csv_data, img_files, messages):
     chat_history = get_chat_history(messages)
     return messages, chat_history, no_update, no_update, no_update
 
-def call_llm(messages: list):
-    trim_messages(
-            messages, 
-            token_counter=len,
-            strategy="last",
-            max_tokens=30,
-            include_system=True
-        )
-    response = llm.invoke(messages)
-    print(response.content, response.tool_calls)
-    return response
-
 @callback(
     Output('dataset-name', 'data', allow_duplicate=True),
     Output('csv-data', 'data'),
@@ -200,6 +225,11 @@ def call_llm(messages: list):
     Output('alert-missing', 'children'),
     Output('dataset-dropdown', 'options'),
     Output('dataset-dropdown', 'value'),
+    Output('messages', 'data', allow_duplicate=True),
+    Output('llm-output', 'children', allow_duplicate=True),
+    Output('figure-output', 'figure', allow_duplicate=True),
+    Output('hide-div', 'style', allow_duplicate=True),
+    Output('fig-type', 'data', allow_duplicate=True),
     Input('file-upload', 'filename'),
     Input('file-upload', 'contents'),
     prevent_initial_call=True
@@ -216,17 +246,22 @@ def store_uploaded_dataset(filenames, contents):
             missing_columns = ptools.find_missing_columns(df)
             if missing_columns:
                 missing_columns_str = ", ".join(missing_columns)
-                return no_update, no_update, no_update, True, f"Uploaded csv needs columns: {missing_columns_str}", no_update, no_update
+                return no_update, no_update, no_update, True, f"Uploaded csv needs columns: {missing_columns_str}", no_update, no_update, no_update, no_update, no_update, no_update, no_update
             csv_data = df.to_dict('records')
             dataset_name = filename
+            # construct re-initialized system message
+            re_initial_messages = get_empty_history_for_dataset_csv(df)
+            chat_history = get_chat_history(re_initial_messages)
         if filename.endswith(".jpg"):
             img_files[filename] = content
     img_files_json = json.dumps(img_files)
     # if dataset size exceeds 8MB, alert the user
     sys.getsizeof(img_files_json) + sys.getsizeof(csv_data)
     if sys.getsizeof(img_files_json) + sys.getsizeof(csv_data) > 8000000:
-        return no_update, no_update, no_update, True, "Uploaded dataset needs to be smaller than 8MB. ", no_update, no_update
-    return dataset_name, csv_data, img_files_json, False, no_update, ["DAEMONS", dataset_name], dataset_name
+        return no_update, no_update, no_update, True, "Uploaded dataset needs to be smaller than 8MB.", no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    if csv_data == None:
+        return no_update, no_update, no_update, True, 'Upload a "fixations.csv" file alongside the images.', no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    return dataset_name, csv_data, img_files_json, False, no_update, ["DAEMONS", dataset_name], dataset_name, re_initial_messages, chat_history, fig, {"display": "none"}, None
 
 @callback(
     Output('dataset-name', 'data', allow_duplicate=True),
@@ -235,18 +270,6 @@ def store_uploaded_dataset(filenames, contents):
 )
 def update_selected_dataset(value):
     return value
-
-def get_chat_history(messages: list) -> list[html.Div]:
-    message_div = [
-        html.Div(message["content"], className=f"msg {message['role']}")
-        for message in messages 
-        # This means the message is a human message
-        if ((message["role"] != "system") and (message["role"] != "tool"))
-        # This only gets checked when the message is not a 'human' message
-        # it picks out tool messages that have an artifact and content
-        or ((message["role"] == "tool") and (message["tool_call_id"].endswith("a")))
-        ]
-    return message_div
 
 if __name__ == '__main__':
     app.run(debug=True)
