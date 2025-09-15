@@ -125,8 +125,15 @@ def get_chat_history(messages: list) -> list[html.Div]:
         ]
     return message_div
 
-def get_empty_history_for_dataset_csv(dataset_csv: pd.DataFrame) -> list:
-    col_names = list(dataset_csv.columns)
+def initialize_chat_history_for_dataset(dataset: pd.DataFrame|str) -> list:
+    """This function takes either a dataframe of a custom dataset of the name of one of the default datasets
+    and returns a chat history containing only an initial system message with instructions and information about the dataset.
+    """
+    col_names = None
+    if isinstance(dataset, str) and dataset in ptools.DEFAULT_DATASETS:
+        col_names = ptools.get_valid_col_names(dataset)
+    if isinstance(dataset, pd.DataFrame):
+        col_names = list(dataset.columns)
     system_message = [
         {
             "content":
@@ -250,7 +257,7 @@ def store_uploaded_dataset(filenames, contents):
             csv_data = df.to_dict('records')
             dataset_name = filename
             # construct re-initialized system message
-            re_initial_messages = get_empty_history_for_dataset_csv(df)
+            re_initial_messages = initialize_chat_history_for_dataset(df)
             chat_history = get_chat_history(re_initial_messages)
         if filename.endswith(".jpg"):
             img_files[filename] = content
@@ -265,11 +272,24 @@ def store_uploaded_dataset(filenames, contents):
 
 @callback(
     Output('dataset-name', 'data', allow_duplicate=True),
+    Output('messages', 'data', allow_duplicate=True),
+    Output('llm-output', 'children', allow_duplicate=True),
+    Output('figure-output', 'figure', allow_duplicate=True),
+    Output('hide-div', 'style', allow_duplicate=True),
+    Output('fig-type', 'data', allow_duplicate=True),
     Input('dataset-dropdown', 'value'),
+    State('csv-data', 'data'),
     prevent_initial_call=True
 )
-def update_selected_dataset(value):
-    return value
+def update_selected_dataset(value, csv_data):
+    re_initial_messages = []
+    if value in ptools.DEFAULT_DATASETS:
+        re_initial_messages = initialize_chat_history_for_dataset(value)
+    elif csv_data != None:
+        df = csv_data
+        re_initial_messages = initialize_chat_history_for_dataset(df)
+    chat_history = get_chat_history(re_initial_messages)
+    return value, re_initial_messages, chat_history, fig, {"display": "none"}, None
 
 if __name__ == '__main__':
     app.run(debug=True)
