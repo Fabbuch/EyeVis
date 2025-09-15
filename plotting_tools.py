@@ -197,7 +197,7 @@ def tool_query_dataset(
     """Query the dataset using an SQL query (duckdb dialect).
 
     Args:
-        query: an SQL query string. The dataset is daemons, with each entry being one fixation. use single quotes to escape strings, for example: "select distinct subject_id from daemons where image_name == '0061.jpg'"
+        query: an SQL query string. The dataset is daemons, with each entry being one fixation. use single quotes to escape strings, for example: select distinct subject_id from daemons where image_name == '0061.jpg'
         dataset_name: name of the dataset
         fixation_df: dataframe of fixation data from uploaded dataset. None if the dataset is one of the predefined default datasets
     """

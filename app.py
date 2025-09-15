@@ -49,7 +49,7 @@ fig = ptools.default_fig_factory(1920, 1080)
 app.layout = dbc.Container([
     html.Div(children=[
         dbc.Row([
-            html.Div(children="EyeVis: LLM-assisted data analysis for eye-tracking Data", 
+            html.Div(children="EyeVis: LLM-assisted data analysis for eye-tracking data", 
             className="title"),
             html.Hr(className="line"),
             dbc.Row([
@@ -91,7 +91,10 @@ app.layout = dbc.Container([
                     id='loading-response',
                     type='dot',
                     show_initially=False,
-                    children=[dcc.Store('messages', data=initial_messages)]
+                    children=[
+                        html.Div(id='loading-placeholder', className="loading",
+                                children=[dcc.Store('messages', data=initial_messages)])
+                        ]
                 ),
                 dcc.Textarea(
                     id='llm-input',
@@ -154,10 +157,14 @@ def update_output(n_clicks, value, dataset_name, csv_data, img_files, messages):
             try:
                 tool_message = ptools.tools[fct_name].invoke(tool_call)
             except ValueError as exc:
-                tool_message = {"content": {str(exc)}, "tool_call_id": n_clicks, "role": "tool"}
+                tool_message = {"content": {str(exc)}, "tool_call_id": f"{n_clicks}e", "role": "tool"}
                 print(exc)
                 return messages, chat_history, no_update, no_update, no_update
-            messages.append({"content": tool_message.content, "tool_call_id": n_clicks, "role": "tool"})
+            
+            # No exception occured:
+            # Mark tool call with 'a' for artifact or 'c' for content-only
+            tool_call_id_tag = str(n_clicks) + "a" if tool_message.artifact else str(n_clicks) + "c"
+            messages.append({"content": tool_message.content, "tool_call_id": tool_call_id_tag, "role": "tool"})
             print(tool_message.content)
 
             chat_history = get_chat_history(messages)
@@ -234,7 +241,12 @@ def update_selected_dataset(value):
 def get_chat_history(messages: list) -> list[html.Div]:
     message_div = [
         html.Div(message["content"], className=f"msg {message['role']}")
-        for message in messages if message["role"] != "system" and message["role"] != "tool"
+        for message in messages 
+        # This means the message is a human message
+        if ((message["role"] != "system") and (message["role"] != "tool"))
+        # This only gets checked when the message is not a 'human' message
+        # it picks out tool messages that have an artifact and content
+        or ((message["role"] == "tool") and (message["tool_call_id"].endswith("a")))
         ]
     return message_div
 
