@@ -9,17 +9,11 @@ import base64
 import pandas as pd
 import io
 import json
+import sys
 
-from langchain_core.messages import AIMessage
 from langchain_ollama import ChatOllama
 
-from langchain_core.messages import (
-    AIMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
-    trim_messages
-)
+from langchain_core.messages import trim_messages
 
 datasets_path = os.getcwd() + "/" + "datasets"
 
@@ -213,7 +207,7 @@ def call_llm(messages: list):
 def store_uploaded_dataset(filenames, contents):
     csv_data = None
     img_files = {}
-    dataset_name = None
+    dataset_name = "Uploaded Dataset"
     for filename, content in zip(filenames, contents):
         if filename.endswith(".csv"):
             _, content_string = content.split(',')
@@ -228,6 +222,10 @@ def store_uploaded_dataset(filenames, contents):
         if filename.endswith(".jpg"):
             img_files[filename] = content
     img_files_json = json.dumps(img_files)
+    # if dataset size exceeds 8MB, alert the user
+    sys.getsizeof(img_files_json) + sys.getsizeof(csv_data)
+    if sys.getsizeof(img_files_json) + sys.getsizeof(csv_data) > 8000000:
+        return no_update, no_update, no_update, True, "Uploaded dataset needs to be smaller than 8MB. ", no_update, no_update
     return dataset_name, csv_data, img_files_json, False, no_update, ["DAEMONS", dataset_name], dataset_name
 
 @callback(
