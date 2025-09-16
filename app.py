@@ -14,6 +14,7 @@ import sys
 from langchain_ollama import ChatOllama
 
 from langchain_core.messages import trim_messages
+from pydantic import ValidationError
 
 datasets_path = os.getcwd() + "/" + "datasets"
 
@@ -116,9 +117,10 @@ def call_llm(messages: list):
 def get_chat_history(messages: list) -> list[html.Div]:
     message_div = [
         html.Div(message["content"], className=f"msg {message['role']}")
-        for message in messages 
+        for message in messages
         # This means the message is a human message
-        if ((message["role"] != "system") and (message["role"] != "tool"))
+        if ((message["role"] != "system") and (message["role"] != "tool")
+            and (not message["content"].startswith("The last tool call raised an exception. Try calling the tool again with corrected arguments. Do not repeat mistakes.")))
         # This only gets checked when the message is not a 'human' message
         # it picks out tool messages that have an artifact and content
         or ((message["role"] == "tool") and (message["tool_call_id"].endswith("a")))
@@ -190,31 +192,60 @@ def update_output(n_clicks, value, dataset_name, csv_data, img_files, messages):
                 tool_call["args"]["fixation_df"] = fixation_df
             if "img_files" in arg_names:
                 tool_call["args"]["img_files"] = img_files_dict
-            try:
-                tool_message = ptools.tools[fct_name].invoke(tool_call)
-            except ValueError as exc:
-                tool_message = {"content": {str(exc)}, "tool_call_id": f"{n_clicks}e", "role": "tool"}
-                print(exc)
-                return messages, no_update, no_update, no_update
             
-            # No exception occured:
-            # Mark tool call with 'a' for artifact or 'c' for content-only
-            tool_call_id_tag = str(n_clicks) + "a" if tool_message.artifact else str(n_clicks) + "c"
-            messages.append({"content": tool_message.content, "tool_call_id": tool_call_id_tag, "role": "tool"})
-            print(tool_message.content)
+            count_tries = 0
+            while count_tries < 3:
+                try:
+                    tool_call["args"]["dataset_name"] = dataset_name
+                    tool_call["args"]["fixation_df"] = fixation_df
+                    tool_call["args"]["img_files"] = img_files_dict
+                    tool_message = ptools.tools[fct_name].invoke(tool_call)
+                except ValueError as exc:
+                    count_tries += 1
+                    if count_tries >= 3:
+                        print(f"Loop: {count_tries}, Tool call failed 3 times.")
+                        messages.append({"content": "The tool call failed after 3 attempts.", "tool_call_id": f"{n_clicks}a", "role": "tool"})
+                        return messages, no_update, no_update, no_update
+                    if isinstance(exc, ValidationError):
+                        print(f"Loop: {count_tries}: {exc}")
+                        tool_message = {"content": str(exc), "tool_call_id": f"{n_clicks+(count_tries+1)}e", "role": "tool"}
+                        retry_prompt = {
+                            "content": "The last tool call raised an exception. Try calling the tool again with corrected arguments. Do not repeat mistakes.", 
+                            "role": "human"
+                        }
+                        messages.append(tool_message)
+                        messages.append(retry_prompt)
+                        ai_message = call_llm(messages)
+                        tool_call = ai_message.tool_calls[0]
+                        fct_name = tool_call["name"]
+                    elif isinstance(exc, ValueError):
+                        tool_message = {"content": str(exc), "tool_call_id": f"{n_clicks}c", "role": "tool"}
+                        messages.append(tool_message)
+                        ai_message = call_llm(messages)
+                        content = ai_message.content
+                        messages.append({"content": content, "role": "ai"})
+                        return messages, no_update, no_update, no_update
+                    else:
+                        raise exc
+                # No error
+                else:
+                    # Mark tool call with 'a' for artifact or 'c' for content-only
+                    tool_call_id_tag = str(n_clicks) + "a" if tool_message.artifact else str(n_clicks) + "c"
+                    messages.append({"content": tool_message.content, "tool_call_id": tool_call_id_tag, "role": "tool"})
 
-            if tool_message.artifact:
-                fig_type = tool_message.artifact["data"][0]["type"]
-                if fig_type == "histogram2d":
-                    return messages, tool_message.artifact, {"display": "block"}, fig_type
-                return messages, tool_message.artifact, {"display": "none"}, fig_type
-            
-            # no artifact returned by tool, pass content to LLM, without displaying it to the user
-            ai_message = call_llm(messages)
-            content = ai_message.content
-            messages.append({"content": content, "role": "ai"})
-            return messages, no_update, no_update, no_update
+                    if tool_message.artifact:
+                        fig_type = tool_message.artifact["data"][0]["type"]
+                        if fig_type == "histogram2d":
+                            return messages, tool_message.artifact, {"display": "block"}, fig_type
+                        return messages, tool_message.artifact, {"display": "none"}, fig_type
+                
+                    # no artifact returned by tool, pass content to LLM, without displaying it to the user
+                    ai_message = call_llm(messages)
+                    content = ai_message.content
+                    messages.append({"content": content, "role": "ai"})
+                    return messages, no_update, no_update, no_update
 
+    # No tool calls
     content = ai_message.content
     messages.append({"content": content, "role": "ai"})
     return messages, no_update, no_update, no_update
